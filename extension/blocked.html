@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Site Blocked</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            text-align: center;
+            max-width: 600px;
+            padding: 60px 40px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+
+        .icon {
+            font-size: 80px;
+            margin-bottom: 24px;
+            animation: shake 0.5s ease-in-out;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px) rotate(-5deg); }
+            75% { transform: translateX(5px) rotate(5deg); }
+        }
+
+        h1 {
+            font-size: 2.5em;
+            font-weight: 700;
+            margin-bottom: 16px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .site {
+            font-size: 1.1em;
+            margin: 24px 0;
+            padding: 16px 24px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            font-family: 'SF Mono', 'Consolas', monospace;
+            word-break: break-all;
+        }
+
+        .message {
+            font-size: 1.15em;
+            line-height: 1.6;
+            margin: 24px 0;
+            opacity: 0.9;
+        }
+
+        .quote {
+            font-style: italic;
+            font-size: 1em;
+            margin-top: 32px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            border-left: 4px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .quote-author {
+            display: block;
+            margin-top: 12px;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .timer {
+            margin-top: 24px;
+            font-size: 0.95em;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">&#128683;</div>
+        <h1>Site Blocked</h1>
+        <div class="site" id="blocked-site">Loading...</div>
+        <div class="message">
+            This site is blocked during your focus period.
+            <br><br>
+            Take a deep breath and stay focused on what matters.
+        </div>
+        <div class="quote" id="quote-container">
+            <span id="quote-text"></span>
+            <span class="quote-author" id="quote-author"></span>
+        </div>
+        <div class="timer" id="timer"></div>
+    </div>
+    <script src="blocked.js"></script>
+</body>
+</html>

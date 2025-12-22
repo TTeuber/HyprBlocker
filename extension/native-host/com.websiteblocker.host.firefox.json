@@ -1,0 +1,7 @@
+{
+  "name": "com.websiteblocker.host",
+  "description": "Website Blocker Native Host - Provides browser PID to extension",
+  "path": "/home/USER/.local/share/website-blocker/native-host/host.py",
+  "type": "stdio",
+  "allowed_extensions": ["website-blocker@websiteblocker.local"]
+}

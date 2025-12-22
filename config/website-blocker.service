@@ -1,0 +1,23 @@
+[Unit]
+Description=Website Blocker Daemon
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=%USER%
+Environment="PYTHONUNBUFFERED=1"
+WorkingDirectory=%HOME%/.config/website-blocker
+ExecStart=%HOME%/Projects/Blocker/.venv/bin/python %HOME%/Projects/Blocker/daemon/main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Make it harder to kill
+KillMode=process
+KillSignal=SIGTERM
+SendSIGKILL=no
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="popup">
+        <div class="header">
+            <h1>Website Blocker</h1>
+        </div>
+
+        <div class="status-section">
+            <div class="status-row">
+                <span class="status-indicator" id="daemon-indicator">&#9679;</span>
+                <span class="status-label">Daemon</span>
+                <span class="status-value" id="daemon-status">Checking...</span>
+            </div>
+            <div class="status-row">
+                <span class="status-indicator" id="extension-indicator">&#9679;</span>
+                <span class="status-label">Extension</span>
+                <span class="status-value" id="extension-status">Active</span>
+            </div>
+        </div>
+
+        <div class="info-section">
+            <div class="info-row">
+                <span class="info-label">Blocked sites:</span>
+                <span class="info-value" id="blocked-count">0</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Browser PID:</span>
+                <span class="info-value" id="browser-pid">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Lock status:</span>
+                <span class="info-value" id="lock-status">-</span>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button id="refresh-btn" class="btn">Refresh Rules</button>
+            <button id="settings-btn" class="btn btn-secondary">Open Settings</button>
+        </div>
+
+        <div class="footer">
+            <span id="last-update">Last update: -</span>
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
