@@ -21,6 +21,7 @@ class BrowserHeartbeat:
     browser: str
     last_seen: datetime
     incognito_last_seen: Optional[datetime] = None
+    incognito_enabled: bool = True
 
 
 class HeartbeatTracker:
@@ -71,30 +72,33 @@ class HeartbeatTracker:
         remaining = (self._grace_period_until - datetime.now()).total_seconds()
         return max(0, int(remaining))
 
-    def register_heartbeat(self, pid: int, browser: str, incognito: bool) -> None:
+    def register_heartbeat(self, pid: int, browser: str, incognito: bool, incognito_enabled: bool = True) -> None:
         """Register a heartbeat from a browser extension.
 
         Args:
             pid: The browser process ID
             browser: The browser name (e.g., 'firefox', 'chrome')
             incognito: Whether this is from an incognito/private window
+            incognito_enabled: Whether extension has incognito permission
         """
         now = datetime.now()
 
         if pid in self.active_browsers:
             # Update existing heartbeat
             self.active_browsers[pid].last_seen = now
+            self.active_browsers[pid].incognito_enabled = incognito_enabled
             if incognito:
                 self.active_browsers[pid].incognito_last_seen = now
-            logger.debug(f"Updated heartbeat for {browser} (PID: {pid}, incognito: {incognito})")
+            logger.debug(f"Updated heartbeat for {browser} (PID: {pid}, incognito: {incognito}, incognito_enabled: {incognito_enabled})")
         else:
             # New browser registration
             self.active_browsers[pid] = BrowserHeartbeat(
                 browser=browser,
                 last_seen=now,
-                incognito_last_seen=now if incognito else None
+                incognito_last_seen=now if incognito else None,
+                incognito_enabled=incognito_enabled
             )
-            logger.info(f"Registered new browser: {browser} (PID: {pid})")
+            logger.info(f"Registered new browser: {browser} (PID: {pid}, incognito_enabled: {incognito_enabled})")
 
     def get_compliant_browsers(self) -> Set[int]:
         """Get PIDs of browsers with recent heartbeats.
@@ -180,13 +184,21 @@ class HeartbeatTracker:
         now = datetime.now()
         timeout = timedelta(seconds=self.heartbeat_timeout)
 
+        incognito_active = heartbeat.incognito_last_seen is not None and \
+                           now - heartbeat.incognito_last_seen <= timeout
+
+        # Browser is compliant if BOTH:
+        # 1. Heartbeat is recent (extension running)
+        # 2. Extension has incognito permission enabled
+        is_compliant = (now - heartbeat.last_seen <= timeout) and heartbeat.incognito_enabled
+
         return {
             "pid": pid,
             "browser": heartbeat.browser,
-            "compliant": now - heartbeat.last_seen <= timeout,
+            "compliant": is_compliant,
             "last_heartbeat": heartbeat.last_seen.isoformat(),
-            "incognito_active": heartbeat.incognito_last_seen is not None and \
-                                now - heartbeat.incognito_last_seen <= timeout
+            "incognito_active": incognito_active,
+            "incognito_enabled": heartbeat.incognito_enabled
         }
 
     def get_all_browser_statuses(self) -> list:

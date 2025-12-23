@@ -58,6 +58,7 @@ class BrowserStatus:
     compliant: bool
     last_heartbeat: str
     incognito_active: bool
+    incognito_enabled: bool
 
 
 @dataclass

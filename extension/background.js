@@ -31,6 +31,13 @@ chrome.runtime.onStartup.addListener(async () => {
 async function initialize() {
     await getBrowserPID();
     await fetchBlockedSites();
+
+    const incognitoAllowed = await isAllowedIncognitoAccess();
+    console.log('Extension incognito access:', incognitoAllowed ? 'ENABLED' : 'DISABLED');
+    if (!incognitoAllowed) {
+        console.warn('WARNING: Extension does not have incognito permission - browser will be NON-COMPLIANT');
+    }
+
     startHeartbeat();
     startRulesRefresh();
 }
@@ -39,13 +46,18 @@ async function initialize() {
  * Get browser PID via native messaging
  */
 async function getBrowserPID() {
+    // Set fallback PID immediately so heartbeats work
+    browserPID = hashCode(chrome.runtime.id + Date.now());
+    console.log('Initial fallback PID:', browserPID);
+
+    // Try to get real PID from native messaging (will override fallback if successful)
     try {
         const port = chrome.runtime.connectNative('com.websiteblocker.host');
 
         port.onMessage.addListener((message) => {
             if (message.pid) {
                 browserPID = message.pid;
-                console.log('Browser PID:', browserPID);
+                console.log('Using real browser PID from native host:', browserPID);
             }
             if (message.error) {
                 console.error('Native host error:', message.error);
@@ -54,16 +66,13 @@ async function getBrowserPID() {
 
         port.onDisconnect.addListener(() => {
             if (chrome.runtime.lastError) {
-                console.warn('Native messaging disconnected:', chrome.runtime.lastError.message);
+                console.log('Native messaging not available (this is OK, using fallback PID)');
             }
         });
 
         port.postMessage({ action: 'get_pid' });
     } catch (error) {
-        console.error('Failed to connect to native host:', error);
-        // Use a fallback - generate a random ID based on extension ID
-        browserPID = hashCode(chrome.runtime.id + Date.now());
-        console.log('Using fallback PID:', browserPID);
+        console.log('Native messaging not configured (this is OK, using fallback PID)');
     }
 }
 
@@ -86,16 +95,40 @@ function hashCode(str) {
 async function isIncognitoWindow() {
     try {
         const windows = await chrome.windows.getAll();
+
+        // Check if ANY window is in incognito mode (not just focused)
         for (const window of windows) {
-            if (window.focused && window.incognito) {
+            if (window.incognito) {
                 return true;
             }
         }
+
         return false;
     } catch (error) {
         console.error('Failed to check incognito status:', error);
         return false;
     }
+}
+
+/**
+ * Check if extension is allowed to run in incognito mode
+ */
+async function isAllowedIncognitoAccess() {
+    return new Promise((resolve) => {
+        try {
+            chrome.extension.isAllowedIncognitoAccess((isAllowed) => {
+                if (chrome.runtime.lastError) {
+                    console.error('Failed to check incognito access:', chrome.runtime.lastError);
+                    resolve(false);
+                } else {
+                    resolve(isAllowed);
+                }
+            });
+        } catch (error) {
+            console.error('Exception checking incognito access:', error);
+            resolve(false);
+        }
+    });
 }
 
 /**
@@ -117,13 +150,9 @@ function getBrowserName() {
  * Send heartbeat to daemon
  */
 async function sendHeartbeat() {
-    if (!browserPID) {
-        console.warn('No browser PID available for heartbeat');
-        return;
-    }
-
     try {
         const isIncognito = await isIncognitoWindow();
+        const incognitoAllowed = await isAllowedIncognitoAccess();
 
         const response = await fetch(`${DAEMON_URL}/api/heartbeat`, {
             method: 'POST',
@@ -132,6 +161,7 @@ async function sendHeartbeat() {
                 pid: browserPID,
                 browser: getBrowserName(),
                 incognito: isIncognito,
+                incognito_enabled: incognitoAllowed,
                 timestamp: Date.now()
             })
         });

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Main entry point for the Website Blocker desktop application."""
 
+import argparse
 import json
 import os
 import subprocess
@@ -120,7 +121,8 @@ class API:
             'browser': b.browser,
             'compliant': b.compliant,
             'last_heartbeat': b.last_heartbeat,
-            'incognito_active': b.incognito_active
+            'incognito_active': b.incognito_active,
+            'incognito_enabled': b.incognito_enabled
         } for b in browsers]
 
     def is_daemon_running(self) -> bool:
@@ -196,33 +198,46 @@ def get_web_dir() -> str:
 
 def main():
     """Main entry point."""
-    try:
-        web_dir = get_web_dir()
-        index_path = os.path.join(web_dir, 'index.html')
+    parser = argparse.ArgumentParser(description='Website Blocker Desktop App')
+    parser.add_argument('--dev', action='store_true', help='Run in development mode (connects to Vite dev server)')
+    args = parser.parse_args()
 
-        if not os.path.exists(index_path):
-            print(f"Error: index.html not found at {index_path}")
+    api = API()
+
+    if args.dev:
+        # Development mode - connect to Vite dev server
+        url = 'http://localhost:5173'
+        print("=" * 60)
+        print("Running in DEVELOPMENT mode")
+        print(f"Connecting to Vite dev server at {url}")
+        print("Make sure to run 'bun run dev' in the frontend directory!")
+        print("=" * 60)
+    else:
+        # Production mode - use built files
+        try:
+            web_dir = get_web_dir()
+            url = os.path.join(web_dir, 'index.html')
+
+            if not os.path.exists(url):
+                print(f"Error: index.html not found at {url}")
+                sys.exit(1)
+        except FileNotFoundError as e:
+            print(f"Error: {e}")
             sys.exit(1)
 
-        api = API()
+    # Create the window
+    window = webview.create_window(
+        title='Website Blocker',
+        url=url,
+        js_api=api,
+        width=1000,
+        height=700,
+        min_size=(800, 600),
+        resizable=True
+    )
 
-        # Create the window
-        window = webview.create_window(
-            title='Website Blocker',
-            url=index_path,
-            js_api=api,
-            width=1000,
-            height=700,
-            min_size=(800, 600),
-            resizable=True
-        )
-
-        # Start the application
-        webview.start(gui='gtk')
-
-    except FileNotFoundError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    # Start the application
+    webview.start(gui='gtk')
 
 
 if __name__ == '__main__':

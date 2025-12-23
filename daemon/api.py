@@ -25,6 +25,7 @@ class HeartbeatRequest(BaseModel):
     pid: int
     browser: str
     incognito: bool = False
+    incognito_enabled: bool = True
     timestamp: Optional[int] = None
 
 
@@ -117,6 +118,7 @@ class BrowserStatus(BaseModel):
     compliant: bool
     last_heartbeat: str
     incognito_active: bool
+    incognito_enabled: bool
 
 
 class GracePeriodResponse(BaseModel):
@@ -183,7 +185,8 @@ async def receive_heartbeat(heartbeat: HeartbeatRequest):
     tracker.register_heartbeat(
         pid=heartbeat.pid,
         browser=heartbeat.browser,
-        incognito=heartbeat.incognito
+        incognito=heartbeat.incognito,
+        incognito_enabled=heartbeat.incognito_enabled
     )
     return HeartbeatResponse(status="ok")
 
@@ -477,7 +480,8 @@ async def get_browsers():
             browser=s["browser"],
             compliant=s["compliant"],
             last_heartbeat=s["last_heartbeat"],
-            incognito_active=s["incognito_active"]
+            incognito_active=s["incognito_active"],
+            incognito_enabled=s["incognito_enabled"]
         )
         for s in statuses
     ]

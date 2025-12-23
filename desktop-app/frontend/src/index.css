@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@theme {
+  /* Backgrounds - JetBrains Darcula */
+  --color-bg: #2b2b2b;
+  --color-bg-elevated: #3c3f41;
+  --color-bg-secondary: #313335;
+  --color-bg-sidebar: #1e1e1e;
+  --color-bg-card: #3c3f41;
+  --color-bg-hover: #4b4b4b;
+  --color-bg-selected: #214283;
+  --color-bg-input: #45494a;
+
+  /* Text */
+  --color-text: #a9b7c6;
+  --color-text-primary: #a9b7c6;
+  --color-text-secondary: #808080;
+  --color-text-muted: #606366;
+  --color-text-bright: #ffffff;
+
+  /* Accent colors - Darcula syntax highlighting palette */
+  --color-accent: #cc7832;
+  --color-accent-orange: #cc7832;
+  --color-accent-green: #6a8759;
+  --color-accent-purple: #9876aa;
+  --color-accent-blue: #6897bb;
+  --color-accent-cyan: #299999;
+  --color-accent-yellow: #bbb529;
+
+  /* Semantic colors */
+  --color-success: #6a8759;
+  --color-warning: #cc7832;
+  --color-danger: #bc3f3c;
+  --color-info: #6897bb;
+
+  /* Borders */
+  --color-border: #323232;
+  --color-border-focus: #466d94;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Spacing - keep defaults */
+  --spacing-sidebar: 240px;
+
+  /* Font family */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling for Darcula theme */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-bg-hover);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+/* Toast animation */
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
