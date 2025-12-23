@@ -90,7 +90,11 @@ class SiteBlocker:
         return False  # Not in any list, don't block
 
     async def is_site_blocked(self, url: str) -> bool:
-        """Check if a site is blocked.
+        """Check if a site is blocked using intersection-based allow logic.
+
+        A URL is allowed only if:
+        1. No active blocks would block it, OR
+        2. It appears in the allow list of EVERY block that would block it
 
         Args:
             url: The URL to check (hostname or full URL)
@@ -103,14 +107,43 @@ class SiteBlocker:
             return False
 
         active_blocks = await scheduler.get_active_blocks()
-        all_blocked = []
-        all_allowed = []
+
+        # Find all blocks that would block this URL (ignoring allow lists)
+        blocking_blocks = []
 
         for block in active_blocks:
-            all_blocked.extend(parse_rules_from_text(block.websites_blocked))
-            all_allowed.extend(parse_rules_from_text(block.websites_allowed))
+            blocked_patterns = parse_rules_from_text(block.websites_blocked)
 
-        return self.should_block_url(url, all_blocked, all_allowed)
+            # Check if this block's block patterns match the URL
+            for pattern in blocked_patterns:
+                if self.url_matches_pattern(url, pattern):
+                    blocking_blocks.append(block)
+                    break  # This block would block it, move to next block
+
+        # If no blocks would block this URL, it's allowed
+        if not blocking_blocks:
+            logger.debug(f"URL {url} not blocked by any block")
+            return False
+
+        # Check if URL is in the allow list of EVERY blocking block
+        for block in blocking_blocks:
+            allowed_patterns = parse_rules_from_text(block.websites_allowed)
+
+            # Check if this block's allow list contains the URL
+            url_allowed_by_this_block = False
+            for pattern in allowed_patterns:
+                if self.url_matches_pattern(url, pattern):
+                    url_allowed_by_this_block = True
+                    break
+
+            # If this blocking block doesn't allow the URL, it's blocked
+            if not url_allowed_by_this_block:
+                logger.debug(f"URL {url} blocked by block {block.id} ({block.name}) - not in allow list")
+                return True
+
+        # URL is in the allow list of ALL blocking blocks
+        logger.debug(f"URL {url} allowed by all {len(blocking_blocks)} blocking blocks")
+        return False
 
     async def get_blocked_sites(self) -> List[str]:
         """Get list of all currently blocked site patterns.
@@ -190,7 +223,11 @@ class AppBlocker:
         return False  # Not in any list, don't block
 
     async def is_app_blocked(self, app_class: str) -> bool:
-        """Check if an application is blocked.
+        """Check if an application is blocked using intersection-based allow logic.
+
+        An app is allowed only if:
+        1. No active blocks would block it, OR
+        2. It appears in the allow list of EVERY block that would block it
 
         Args:
             app_class: The application window class
@@ -203,14 +240,43 @@ class AppBlocker:
             return False
 
         active_blocks = await scheduler.get_active_blocks()
-        all_blocked = []
-        all_allowed = []
+
+        # Find all blocks that would block this app (ignoring allow lists)
+        blocking_blocks = []
 
         for block in active_blocks:
-            all_blocked.extend(parse_rules_from_text(block.apps_blocked))
-            all_allowed.extend(parse_rules_from_text(block.apps_allowed))
+            blocked_patterns = parse_rules_from_text(block.apps_blocked)
 
-        return self.should_block_app(app_class, all_blocked, all_allowed)
+            # Check if this block's block patterns match the app
+            for pattern in blocked_patterns:
+                if self.matches_pattern(app_class, pattern):
+                    blocking_blocks.append(block)
+                    break  # This block would block it, move to next block
+
+        # If no blocks would block this app, it's allowed
+        if not blocking_blocks:
+            logger.debug(f"App {app_class} not blocked by any block")
+            return False
+
+        # Check if app is in the allow list of EVERY blocking block
+        for block in blocking_blocks:
+            allowed_patterns = parse_rules_from_text(block.apps_allowed)
+
+            # Check if this block's allow list contains the app
+            app_allowed_by_this_block = False
+            for pattern in allowed_patterns:
+                if self.matches_pattern(app_class, pattern):
+                    app_allowed_by_this_block = True
+                    break
+
+            # If this blocking block doesn't allow the app, it's blocked
+            if not app_allowed_by_this_block:
+                logger.debug(f"App {app_class} blocked by block {block.id} ({block.name}) - not in allow list")
+                return True
+
+        # App is in the allow list of ALL blocking blocks
+        logger.debug(f"App {app_class} allowed by all {len(blocking_blocks)} blocking blocks")
+        return False
 
     async def get_blocked_apps(self) -> List[str]:
         """Get list of all currently blocked application patterns.

@@ -518,41 +518,48 @@ async def get_blocked_sites():
     """Get list of currently active blocked website patterns.
 
     This endpoint is used by the browser extension to get the list
-    of sites to block. Returns patterns from all active blocks.
+    of sites to block. Returns per-block data so extension can implement
+    intersection-based allow list logic.
     """
     from scheduler import get_scheduler
 
     scheduler = get_scheduler()
     if scheduler is None:
-        return {"blocked": [], "allowed": []}
+        return {"blocks": []}
 
     active_blocks = await scheduler.get_active_blocks()
 
-    # Collect all blocked and allowed patterns
-    all_blocked = []
-    all_allowed = []
+    # Return per-block data
+    blocks_data = []
 
     for block in active_blocks:
-        # Parse websites from text fields
+        block_data = {
+            "id": block.id,
+            "name": block.name,
+            "blocked": [],
+            "allowed": []
+        }
+
+        # Parse blocked patterns
         if block.websites_blocked:
-            blocked_list = [
+            block_data["blocked"] = [
                 line.strip()
                 for line in block.websites_blocked.split('\n')
                 if line.strip()
             ]
-            all_blocked.extend(blocked_list)
 
+        # Parse allowed patterns
         if block.websites_allowed:
-            allowed_list = [
+            block_data["allowed"] = [
                 line.strip()
                 for line in block.websites_allowed.split('\n')
                 if line.strip()
             ]
-            all_allowed.extend(allowed_list)
+
+        blocks_data.append(block_data)
 
     return {
-        "blocked": all_blocked,
-        "allowed": all_allowed
+        "blocks": blocks_data
     }
 
 

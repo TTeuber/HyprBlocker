@@ -8,8 +8,7 @@ const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 const RULES_REFRESH_INTERVAL = 5000; // 5 seconds
 
 let browserPID = null;
-let blockedSites = [];
-let allowedSites = [];
+let blocksData = [];  // Array of {id, name, blocked[], allowed[]}
 let heartbeatIntervalId = null;
 let rulesRefreshIntervalId = null;
 
@@ -224,16 +223,13 @@ async function fetchBlockedSites() {
 
         const data = await response.json();
 
-        blockedSites = data.blocked || [];
-        allowedSites = data.allowed || [];
+        blocksData = data.blocks || [];
 
-        console.log('Blocked sites updated:', blockedSites.length, 'patterns');
-        console.log('Allowed sites:', allowedSites.length, 'patterns');
+        console.log('Blocks data updated:', blocksData.length, 'blocks');
 
         // Store in local storage for popup access
         chrome.storage.local.set({
-            blockedSites: blockedSites,
-            allowedSites: allowedSites
+            blocksData: blocksData
         });
 
     } catch (error) {
@@ -363,7 +359,8 @@ function matchesPatternWithPath(urlPath, pattern) {
 
 /**
  * Check if a URL should be blocked
- * Implements allow-list precedence: allow lists override block lists
+ * Implements intersection-based allow logic: URL is allowed only if it appears
+ * in the allow list of EVERY block that would otherwise block it.
  */
 function shouldBlockUrl(url) {
     try {
@@ -371,24 +368,50 @@ function shouldBlockUrl(url) {
         const hostname = urlObj.hostname;
         const fullPath = hostname + urlObj.pathname;
 
-        // STEP 1: Check if explicitly ALLOWED (takes precedence)
-        for (const pattern of allowedSites) {
-            if (matchesPatternWithPath(fullPath, pattern)) {
-                console.log('✅ URL allowed by pattern:', pattern, '→', url);
-                return { blocked: false, allowed: true, pattern: pattern, hostname: hostname };
+        // Find all blocks that would block this URL (ignoring allow lists)
+        const blockingBlocks = [];
+
+        for (const block of blocksData) {
+            // Check if this block's blocked patterns match the URL
+            for (const pattern of block.blocked) {
+                if (matchesPatternWithPath(fullPath, pattern)) {
+                    blockingBlocks.push(block);
+                    break;  // This block would block it, move to next block
+                }
             }
         }
 
-        // STEP 2: Check if BLOCKED
-        for (const pattern of blockedSites) {
-            if (matchesPatternWithPath(fullPath, pattern)) {
-                console.log('🚫 URL blocked by pattern:', pattern, '→', url);
-                return { blocked: true, pattern: pattern, hostname: hostname };
+        // If no blocks would block this URL, it's allowed
+        if (blockingBlocks.length === 0) {
+            return { blocked: false };
+        }
+
+        // Check if URL is in the allow list of EVERY blocking block
+        for (const block of blockingBlocks) {
+            let urlAllowedByThisBlock = false;
+
+            for (const pattern of block.allowed) {
+                if (matchesPatternWithPath(fullPath, pattern)) {
+                    urlAllowedByThisBlock = true;
+                    break;
+                }
+            }
+
+            // If this blocking block doesn't allow the URL, it's blocked
+            if (!urlAllowedByThisBlock) {
+                console.log('🚫 URL blocked by block:', block.name, '→', url);
+                return {
+                    blocked: true,
+                    blockName: block.name,
+                    hostname: hostname
+                };
             }
         }
 
-        // STEP 3: Not in any list - allow by default
-        return { blocked: false };
+        // URL is in the allow list of ALL blocking blocks
+        console.log('✅ URL allowed by all blocking blocks →', url);
+        return { blocked: false, allowed: true };
+
     } catch (error) {
         console.error('Invalid URL:', url);
         return { blocked: false };
