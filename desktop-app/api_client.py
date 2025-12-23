@@ -183,13 +183,26 @@ class DaemonClient:
             Updated Block or None if failed
         """
         try:
+            print(f"\n[API Client] update_block called:")
+            print(f"  URL: {self.base_url}/api/blocks/{block_id}")
+            print(f"  Method: PUT")
+            print(f"  Data: {updates}")
+
             response = self._request('PUT', f'/api/blocks/{block_id}', json=updates)
+
+            print(f"[API Client] Response status: {response.status_code}")
+            print(f"[API Client] Response body: {response.text[:500]}")  # First 500 chars
+
             if response.status_code == 200:
                 return Block(**response.json())
             elif response.status_code == 403:
                 raise PermissionError("Cannot modify blocks during lock period")
-        except requests.RequestException:
-            pass
+            else:
+                print(f"[API Client] Unexpected status code: {response.status_code}")
+        except requests.RequestException as e:
+            print(f"[API Client] RequestException: {e}")
+            import traceback
+            traceback.print_exc()
         return None
 
     def delete_block(self, block_id: int) -> bool:

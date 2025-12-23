@@ -92,13 +92,37 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
       if (formData.lock_mode === 'locked_until' && formData.lock_until) {
         // Ensure proper format
         data.lock_until = formData.lock_until;
+      } else {
+        // Remove lock_until if not in locked_until mode or if empty
+        delete data.lock_until;
+      }
+
+      // Remove block time fields if block_mode is not 'time_range'
+      if (formData.block_mode !== 'time_range') {
+        delete data.block_start_time;
+        delete data.block_end_time;
+        delete data.block_days_of_week;
+      }
+
+      // Remove lock time fields if lock_mode is not 'time_range'
+      if (formData.lock_mode !== 'time_range') {
+        delete data.lock_start_time;
+        delete data.lock_end_time;
+        delete data.lock_days_of_week;
       }
 
       let result;
       if (isEditMode && editBlock) {
+        console.log('[BlockModal] Calling updateBlock:', {
+          blockId: editBlock.id,
+          data: data
+        });
         result = await api.updateBlock(editBlock.id, data);
+        console.log('[BlockModal] updateBlock result:', result);
       } else {
+        console.log('[BlockModal] Calling addBlock:', { data });
         result = await api.addBlock(data);
+        console.log('[BlockModal] addBlock result:', result);
       }
 
       if (result.success) {
@@ -239,7 +263,7 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
               rows={4}
               placeholder="reddit.com&#10;youtube.com/shorts&#10;twitter.com"
               value={formData.websites_blocked || ''}
-              onChange={(e) => updateField('websites_blocked', e.target.value || null)}
+              onChange={(e) => updateField('websites_blocked', e.target.value || '')}
             />
           </FormGroup>
 
@@ -248,7 +272,7 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
               rows={3}
               placeholder="youtube.com/educational&#10;reddit.com/r/programming"
               value={formData.websites_allowed || ''}
-              onChange={(e) => updateField('websites_allowed', e.target.value || null)}
+              onChange={(e) => updateField('websites_allowed', e.target.value || '')}
             />
           </FormGroup>
 
@@ -257,7 +281,7 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
               rows={4}
               placeholder="steam&#10;discord"
               value={formData.apps_blocked || ''}
-              onChange={(e) => updateField('apps_blocked', e.target.value || null)}
+              onChange={(e) => updateField('apps_blocked', e.target.value || '')}
             />
           </FormGroup>
 
@@ -265,7 +289,7 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
             <Textarea
               rows={3}
               value={formData.apps_allowed || ''}
-              onChange={(e) => updateField('apps_allowed', e.target.value || null)}
+              onChange={(e) => updateField('apps_allowed', e.target.value || '')}
             />
           </FormGroup>
         </FormSection>

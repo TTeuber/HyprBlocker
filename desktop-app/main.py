@@ -72,12 +72,30 @@ class API:
     def update_block(self, block_id: int, updates: dict) -> dict:
         """Update a block."""
         try:
+            print(f"\n[PyWebView Bridge] update_block called:")
+            print(f"  block_id: {block_id} (type: {type(block_id)})")
+            print(f"  updates: {updates}")
+            print(f"  updates keys: {list(updates.keys())}")
+
+            # Log each field's value and type
+            for key, value in updates.items():
+                print(f"    {key}: {value!r} (type: {type(value).__name__})")
+
             block = self.client.update_block(block_id, **updates)
+
+            print(f"[PyWebView Bridge] api_client returned: {block}")
+
             if block:
                 return {'success': True}
             return {'success': False, 'error': 'Failed to update block'}
         except PermissionError as e:
+            print(f"[PyWebView Bridge] PermissionError: {e}")
             return {'success': False, 'error': str(e), 'locked': True}
+        except Exception as e:
+            print(f"[PyWebView Bridge] Unexpected exception: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'success': False, 'error': f'Exception: {str(e)}'}
 
     def delete_block(self, block_id: int) -> dict:
         """Delete a block."""

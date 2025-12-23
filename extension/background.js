@@ -5,7 +5,7 @@
 
 const DAEMON_URL = 'http://127.0.0.1:8765';
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-const RULES_REFRESH_INTERVAL = 60000; // 1 minute
+const RULES_REFRESH_INTERVAL = 5000; // 5 seconds
 
 let browserPID = null;
 let blockedSites = [];
@@ -287,19 +287,103 @@ function matchesPattern(hostname, pattern) {
 }
 
 /**
+ * Check if URL (with path) matches a pattern
+ * Supports:
+ * - Domain matching: reddit.com matches www.reddit.com and reddit.com/anything
+ * - Path-specific: youtube.com/shorts only matches that specific path
+ * - Wildcard subdomains: *.reddit.com matches all subdomains
+ */
+function matchesPatternWithPath(urlPath, pattern) {
+    urlPath = urlPath.toLowerCase();
+    pattern = pattern.toLowerCase();
+
+    // Remove protocol if present
+    if (pattern.startsWith('http://')) {
+        pattern = pattern.substring(7);
+    } else if (pattern.startsWith('https://')) {
+        pattern = pattern.substring(8);
+    }
+
+    // Remove trailing slash from pattern
+    if (pattern.endsWith('/')) {
+        pattern = pattern.slice(0, -1);
+    }
+
+    // Remove trailing slash from urlPath
+    if (urlPath.endsWith('/')) {
+        urlPath = urlPath.slice(0, -1);
+    }
+
+    // Handle wildcard subdomains (*.example.com)
+    if (pattern.startsWith('*.')) {
+        const domain = pattern.substring(2);
+        const hostname = urlPath.split('/')[0];
+        return hostname === domain || hostname.endsWith('.' + domain);
+    }
+
+    // Check if pattern includes path
+    if (pattern.includes('/')) {
+        // Path-specific matching with subdomain support
+        // Split pattern into domain and path parts
+        const patternParts = pattern.split('/');
+        const patternDomain = patternParts[0];
+        const patternPath = '/' + patternParts.slice(1).join('/');
+
+        // Split URL into domain and path parts
+        const urlParts = urlPath.split('/');
+        const urlDomain = urlParts[0];
+        const urlPathPart = '/' + urlParts.slice(1).join('/');
+
+        // Check if domains match (with subdomain support like "www.twitch.tv" matches "twitch.tv")
+        const domainsMatch = urlDomain === patternDomain ||
+                            urlDomain.endsWith('.' + patternDomain);
+
+        // Check if paths match (exact match or subpath)
+        const pathsMatch = urlPathPart === patternPath ||
+                          urlPathPart.startsWith(patternPath + '/') ||
+                          urlPathPart.startsWith(patternPath + '?');
+
+        return domainsMatch && pathsMatch;
+    } else {
+        // Domain-only pattern - match domain and all paths
+        const hostname = urlPath.split('/')[0];
+        const patternParts = pattern.split('/');
+        const patternHostname = patternParts[0];
+
+        // Exact hostname match or subdomain match
+        return hostname === patternHostname ||
+               hostname.endsWith('.' + patternHostname) ||
+               urlPath.startsWith(patternHostname + '/');
+    }
+}
+
+/**
  * Check if a URL should be blocked
+ * Implements allow-list precedence: allow lists override block lists
  */
 function shouldBlockUrl(url) {
     try {
         const urlObj = new URL(url);
         const hostname = urlObj.hostname;
+        const fullPath = hostname + urlObj.pathname;
 
+        // STEP 1: Check if explicitly ALLOWED (takes precedence)
+        for (const pattern of allowedSites) {
+            if (matchesPatternWithPath(fullPath, pattern)) {
+                console.log('✅ URL allowed by pattern:', pattern, '→', url);
+                return { blocked: false, allowed: true, pattern: pattern, hostname: hostname };
+            }
+        }
+
+        // STEP 2: Check if BLOCKED
         for (const pattern of blockedSites) {
-            if (matchesPattern(hostname, pattern)) {
+            if (matchesPatternWithPath(fullPath, pattern)) {
+                console.log('🚫 URL blocked by pattern:', pattern, '→', url);
                 return { blocked: true, pattern: pattern, hostname: hostname };
             }
         }
 
+        // STEP 3: Not in any list - allow by default
         return { blocked: false };
     } catch (error) {
         console.error('Invalid URL:', url);
