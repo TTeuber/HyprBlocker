@@ -11,6 +11,8 @@ import os
 # Add daemon directory to Python path for absolute imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from sqlalchemy import select
+from database import Block
 from time_verifier import get_time_verifier
 
 logger = logging.getLogger(__name__)
@@ -24,13 +26,15 @@ class LockManager:
     - lock_mode determines when configuration is read-only
     """
 
-    def __init__(self, get_blocks_func):
+    def __init__(self, get_blocks_func, session_factory=None):
         """Initialize the lock manager.
 
         Args:
             get_blocks_func: Async function that returns list of Block objects
+            session_factory: Async session factory for database operations
         """
         self._get_blocks = get_blocks_func
+        self._session_factory = session_factory
         self._time_verifier = get_time_verifier()
         self._was_locked = False
         self._lock_end_time: Optional[datetime] = None
@@ -228,6 +232,38 @@ class LockManager:
             "remaining_seconds": int((earliest_end - now).total_seconds()) if earliest_end else None
         }
 
+    async def _reset_expired_locked_until_blocks(self, now: datetime) -> None:
+        """Reset lock_mode to 'none' for blocks with expired lock_until.
+
+        Args:
+            now: Current datetime
+        """
+        if not self._session_factory:
+            return
+
+        try:
+            async with self._session_factory() as session:
+                # Query blocks with expired locked_until mode
+                result = await session.execute(
+                    select(Block).where(
+                        Block.lock_mode == 'locked_until',
+                        Block.lock_until < now
+                    )
+                )
+                expired_blocks = result.scalars().all()
+
+                if expired_blocks:
+                    for block in expired_blocks:
+                        logger.info(f"Resetting expired lock for block '{block.name}' (lock_until was {block.lock_until})")
+                        block.lock_mode = 'none'
+                        block.lock_until = None
+
+                    await session.commit()
+                    logger.info(f"Reset {len(expired_blocks)} expired locked_until block(s)")
+
+        except Exception as e:
+            logger.error(f"Failed to reset expired locked_until blocks: {e}")
+
     async def handle_lock_transition(self, entering_lock: bool) -> None:
         """Handle transition into or out of lock mode.
 
@@ -260,6 +296,11 @@ class LockManager:
 
     async def check_transitions(self) -> None:
         """Check for lock state transitions and handle them."""
+        # First, reset any expired locked_until blocks
+        now = self._time_verifier.get_verified_time()
+        await self._reset_expired_locked_until_blocks(now)
+
+        # Then check current lock status
         is_locked = await self.is_locked()
 
         if is_locked and not self._was_locked:
@@ -290,10 +331,10 @@ class LockManager:
 _lock_manager: Optional[LockManager] = None
 
 
-def init_lock_manager(get_blocks_func) -> LockManager:
+def init_lock_manager(get_blocks_func, session_factory=None) -> LockManager:
     """Initialize and get the global lock manager instance."""
     global _lock_manager
-    _lock_manager = LockManager(get_blocks_func)
+    _lock_manager = LockManager(get_blocks_func, session_factory)
     return _lock_manager
 
 

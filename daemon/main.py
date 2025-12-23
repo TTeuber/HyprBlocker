@@ -137,7 +137,7 @@ async def lifespan(app):
 
     # Initialize components
     init_scheduler(_session_factory)
-    init_lock_manager(get_all_blocks)
+    init_lock_manager(get_all_blocks, _session_factory)
     init_hyprland_monitor(_session_factory)
     logger.info("Components initialized")
 

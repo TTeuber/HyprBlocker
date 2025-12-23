@@ -46,6 +46,8 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
   const [formData, setFormData] = useState<BlockInput>(INITIAL_FORM_STATE);
   const [blockDays, setBlockDays] = useState<number[]>([]);
   const [lockDays, setLockDays] = useState<number[]>([]);
+  const [lockUntilDate, setLockUntilDate] = useState<string>('');
+  const [lockUntilTime, setLockUntilTime] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
 
   const isEditMode = !!editBlock;
@@ -70,10 +72,22 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
       });
       setBlockDays(parseDaysOfWeek(editBlock.block_days_of_week));
       setLockDays(parseDaysOfWeek(editBlock.lock_days_of_week));
+
+      // Parse lock_until into separate date and time
+      if (editBlock.lock_until) {
+        const [datePart, timePart] = editBlock.lock_until.split('T');
+        setLockUntilDate(datePart);
+        setLockUntilTime(timePart ? timePart.substring(0, 5) : '');
+      } else {
+        setLockUntilDate('');
+        setLockUntilTime('');
+      }
     } else {
       setFormData(INITIAL_FORM_STATE);
       setBlockDays([]);
       setLockDays([]);
+      setLockUntilDate('');
+      setLockUntilTime('');
     }
   }, [editBlock, isOpen]);
 
@@ -89,11 +103,30 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
       };
 
       // Handle lock_until datetime
-      if (formData.lock_mode === 'locked_until' && formData.lock_until) {
-        // Ensure proper format
-        data.lock_until = formData.lock_until;
+      if (formData.lock_mode === 'locked_until') {
+        // Trim and validate date/time fields
+        const trimmedDate = lockUntilDate.trim();
+        const trimmedTime = lockUntilTime.trim();
+
+        console.log('[BlockModal] Lock Until validation:', {
+          lock_mode: formData.lock_mode,
+          lockUntilDate: trimmedDate,
+          lockUntilTime: trimmedTime,
+          isEditMode
+        });
+
+        if (trimmedDate && trimmedTime) {
+          // Combine date and time: "2024-12-25" + "T" + "14:30" = "2024-12-25T14:30"
+          data.lock_until = `${trimmedDate}T${trimmedTime}`;
+          console.log('[BlockModal] Combined lock_until:', data.lock_until);
+        } else {
+          // If either field is missing, show error and abort
+          showToast('Please fill in both date and time for Lock Until mode', 'error');
+          setSubmitting(false);
+          return;
+        }
       } else {
-        // Remove lock_until if not in locked_until mode or if empty
+        // Remove lock_until if not in locked_until mode
         delete data.lock_until;
       }
 
@@ -246,13 +279,24 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
           )}
 
           {formData.lock_mode === 'locked_until' && (
-            <FormGroup label="Lock Until">
-              <Input
-                type="datetime-local"
-                value={formData.lock_until}
-                onChange={(e) => updateField('lock_until', e.target.value)}
-              />
-            </FormGroup>
+            <FormRow>
+              <FormGroup label="Date">
+                <Input
+                  type="date"
+                  value={lockUntilDate}
+                  onChange={(e) => setLockUntilDate(e.target.value)}
+                  required
+                />
+              </FormGroup>
+              <FormGroup label="Time">
+                <Input
+                  type="time"
+                  value={lockUntilTime}
+                  onChange={(e) => setLockUntilTime(e.target.value)}
+                  required
+                />
+              </FormGroup>
+            </FormRow>
           )}
         </FormSection>
 

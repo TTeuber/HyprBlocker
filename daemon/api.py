@@ -349,10 +349,15 @@ async def update_block(
     if block.block_end_time is not None:
         db_block.block_end_time = block.block_end_time
 
+    # Handle lock_mode and lock_until together for consistency
     if block.lock_mode is not None:
         if block.lock_mode not in ('none', 'time_range', 'locked_until'):
             raise HTTPException(status_code=400, detail="Invalid lock_mode")
         db_block.lock_mode = block.lock_mode
+
+        # Clear lock_until if changing away from locked_until mode
+        if block.lock_mode != 'locked_until':
+            db_block.lock_until = None
 
     if block.lock_days_of_week is not None:
         db_block.lock_days_of_week = block.lock_days_of_week
@@ -363,11 +368,21 @@ async def update_block(
     if block.lock_end_time is not None:
         db_block.lock_end_time = block.lock_end_time
 
+    # Handle lock_until with validation
     if block.lock_until is not None:
-        try:
-            db_block.lock_until = datetime.fromisoformat(block.lock_until)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid lock_until datetime format")
+        # Skip empty strings
+        if block.lock_until.strip() == '':
+            # If explicitly setting to empty, clear it
+            db_block.lock_until = None
+        else:
+            try:
+                db_block.lock_until = datetime.fromisoformat(block.lock_until)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid lock_until datetime format. Expected ISO format like '2024-12-25T14:30'")
+
+    # Validate that locked_until mode has a lock_until value
+    if db_block.lock_mode == 'locked_until' and db_block.lock_until is None:
+        raise HTTPException(status_code=400, detail="lock_until datetime is required when lock_mode is 'locked_until'")
 
     if block.enabled is not None:
         db_block.enabled = block.enabled

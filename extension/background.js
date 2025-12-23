@@ -13,6 +13,10 @@ let allowedSites = [];
 let heartbeatIntervalId = null;
 let rulesRefreshIntervalId = null;
 
+// Deduplication to prevent multiple redirects for same navigation
+const BLOCK_CACHE_DURATION = 2000; // 2 seconds
+const recentBlocks = new Map(); // Map<tabId, {url: string, timestamp: number}>
+
 // Initialize on install
 chrome.runtime.onInstalled.addListener(async () => {
     console.log('Website Blocker extension installed');
@@ -392,18 +396,65 @@ function shouldBlockUrl(url) {
 }
 
 /**
- * Handle navigation events - block if necessary
+ * Check if we should attempt to block a navigation
+ * Returns false if we recently blocked this URL in this tab
  */
-chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+function shouldAttemptBlock(tabId, url) {
+    const now = Date.now();
+    const cached = recentBlocks.get(tabId);
+
+    if (cached && cached.url === url) {
+        const timeSinceBlock = now - cached.timestamp;
+        if (timeSinceBlock < BLOCK_CACHE_DURATION) {
+            console.log('⏭️ Skipping duplicate block (already blocked', timeSinceBlock, 'ms ago)');
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Record that we blocked a URL in a tab
+ */
+function recordBlock(tabId, url) {
+    recentBlocks.set(tabId, {
+        url: url,
+        timestamp: Date.now()
+    });
+
+    // Clean up old entries to prevent memory leak
+    if (recentBlocks.size > 100) {
+        const cutoff = Date.now() - BLOCK_CACHE_DURATION;
+        for (const [tid, block] of recentBlocks.entries()) {
+            if (block.timestamp < cutoff) {
+                recentBlocks.delete(tid);
+            }
+        }
+    }
+}
+
+/**
+ * Handle navigation blocking for any webNavigation event
+ */
+async function handleNavigationBlock(details, eventName) {
     // Only handle main frame navigation
     if (details.frameId !== 0) {
+        return;
+    }
+
+    // Check deduplication cache
+    if (!shouldAttemptBlock(details.tabId, details.url)) {
         return;
     }
 
     const result = shouldBlockUrl(details.url);
 
     if (result.blocked) {
-        console.log('Blocking:', result.hostname, 'matched pattern:', result.pattern);
+        console.log(`🚫 [${eventName}] Blocking:`, result.hostname, 'matched pattern:', result.pattern);
+
+        // Record this block to prevent duplicates
+        recordBlock(details.tabId, details.url);
 
         // Redirect to blocked page
         const blockedUrl = chrome.runtime.getURL('blocked.html') +
@@ -416,6 +467,42 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
             console.error('Failed to redirect to blocked page:', error);
         }
     }
+}
+
+/**
+ * PRIMARY: Catch navigation before it starts (URL bar, new tabs)
+ */
+chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+    await handleNavigationBlock(details, 'onBeforeNavigate');
+});
+
+/**
+ * SECONDARY: Catch same-origin navigations that onBeforeNavigate misses
+ */
+chrome.webNavigation.onCommitted.addListener(async (details) => {
+    await handleNavigationBlock(details, 'onCommitted');
+});
+
+/**
+ * SAFETY NET: Catch anything that got committed but not blocked
+ */
+chrome.webNavigation.onDOMContentLoaded.addListener(async (details) => {
+    await handleNavigationBlock(details, 'onDOMContentLoaded');
+});
+
+/**
+ * CRITICAL: Catch SPA navigation (YouTube, Twitch, Reddit, etc.)
+ * Fires when sites use history.pushState/replaceState for client-side routing
+ */
+chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
+    await handleNavigationBlock(details, 'onHistoryStateUpdated');
+});
+
+/**
+ * Clean up block cache when tabs are closed
+ */
+chrome.tabs.onRemoved.addListener((tabId) => {
+    recentBlocks.delete(tabId);
 });
 
 /**
