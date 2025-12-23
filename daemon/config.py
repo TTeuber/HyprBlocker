@@ -35,6 +35,7 @@ class SecurityConfig:
     ])
     max_time_diff_seconds: int = 300
     verify_time_on_transitions: bool = True
+    dev_mode: bool = False  # Disable browser enforcement in dev mode
 
 
 @dataclass
@@ -78,16 +79,23 @@ def load_config() -> Config:
                 browsers=data.get('browsers', Config().browsers)
             )
             logger.info(f"Loaded configuration from {config_path}")
-            return config
         except (json.JSONDecodeError, TypeError, KeyError) as e:
             logger.error(f"Failed to load config: {e}. Using defaults (fail-safe).")
-            return Config()
+            config = Config()
     else:
         # Create default config file
         config = Config()
         save_config(config)
         logger.info(f"Created default configuration at {config_path}")
-        return config
+
+    # Check for dev mode environment variable (overrides config file)
+    dev_mode_env = os.getenv('BLOCKER_DEV_MODE', 'false').lower()
+    config.security.dev_mode = dev_mode_env in ('true', '1', 'yes')
+
+    if config.security.dev_mode:
+        logger.warning("🚨 DEV MODE ENABLED - Browser enforcement disabled!")
+
+    return config
 
 
 def save_config(config: Config) -> None:

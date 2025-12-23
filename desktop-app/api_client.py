@@ -6,28 +6,25 @@ from dataclasses import dataclass
 
 
 @dataclass
-class BlockRule:
-    """Represents a blocking rule."""
-    id: int
-    rule_type: str
-    target: str
-    enabled: bool
-    created_at: str
-
-
-@dataclass
-class Schedule:
-    """Represents a schedule."""
+class Block:
+    """Represents a block configuration."""
     id: int
     name: str
-    schedule_type: str
-    days_of_week: Optional[str]
-    start_time: Optional[str]
-    end_time: Optional[str]
-    locked_until: Optional[str]
+    block_mode: str
+    block_days_of_week: Optional[str]
+    block_start_time: Optional[str]
+    block_end_time: Optional[str]
+    lock_mode: str
+    lock_days_of_week: Optional[str]
+    lock_start_time: Optional[str]
+    lock_end_time: Optional[str]
+    lock_until: Optional[str]
     enabled: bool
     created_at: str
-    rule_ids: List[int]
+    websites_blocked: Optional[str]
+    websites_allowed: Optional[str]
+    apps_blocked: Optional[str]
+    apps_allowed: Optional[str]
 
 
 @dataclass
@@ -37,7 +34,7 @@ class DaemonStatus:
     locked: bool
     lock_end_time: Optional[str]
     active_rules: int
-    active_schedules: int
+    active_blocks: int
     browsers_detected: int
     browsers_compliant: int
 
@@ -61,6 +58,14 @@ class BrowserStatus:
     compliant: bool
     last_heartbeat: str
     incognito_active: bool
+
+
+@dataclass
+class GracePeriodStatus:
+    """Represents grace period status."""
+    active: bool
+    expires_at: Optional[str]
+    remaining_seconds: Optional[int]
 
 
 class DaemonClient:
@@ -117,162 +122,104 @@ class DaemonClient:
             pass
         return None
 
-    def get_rules(self) -> List[BlockRule]:
-        """Get all blocking rules.
+    def get_blocks(self) -> List[Block]:
+        """Get all blocks.
 
         Returns:
-            List of BlockRule objects
+            List of Block objects
         """
         try:
-            response = self._request('GET', '/api/rules')
+            response = self._request('GET', '/api/blocks')
             if response.status_code == 200:
-                return [BlockRule(**r) for r in response.json()]
+                return [Block(**b) for b in response.json()]
         except requests.RequestException:
             pass
         return []
 
-    def add_rule(self, rule_type: str, target: str, enabled: bool = True) -> Optional[BlockRule]:
-        """Add a new blocking rule.
+    def add_block(self, name: str, block_mode: str = 'always', lock_mode: str = 'none', **kwargs) -> Optional[Block]:
+        """Add a new block.
 
         Args:
-            rule_type: 'website' or 'application'
-            target: URL pattern or app class name
-            enabled: Whether the rule is enabled
+            name: Block name
+            block_mode: 'always', 'time_range', or 'disabled'
+            lock_mode: 'none', 'time_range', or 'locked_until'
+            **kwargs: Additional block fields
 
         Returns:
-            Created BlockRule or None if failed
-        """
-        try:
-            response = self._request('POST', '/api/rules', json={
-                'rule_type': rule_type,
-                'target': target,
-                'enabled': enabled
-            })
-            if response.status_code == 200:
-                return BlockRule(**response.json())
-            elif response.status_code == 403:
-                raise PermissionError("Cannot modify rules during lock period")
-        except requests.RequestException:
-            pass
-        return None
-
-    def update_rule(self, rule_id: int, **updates) -> Optional[BlockRule]:
-        """Update a blocking rule.
-
-        Args:
-            rule_id: Rule ID to update
-            **updates: Fields to update
-
-        Returns:
-            Updated BlockRule or None if failed
-        """
-        try:
-            response = self._request('PUT', f'/api/rules/{rule_id}', json=updates)
-            if response.status_code == 200:
-                return BlockRule(**response.json())
-            elif response.status_code == 403:
-                raise PermissionError("Cannot modify rules during lock period")
-        except requests.RequestException:
-            pass
-        return None
-
-    def delete_rule(self, rule_id: int) -> bool:
-        """Delete a blocking rule.
-
-        Args:
-            rule_id: Rule ID to delete
-
-        Returns:
-            True if deleted successfully
-        """
-        try:
-            response = self._request('DELETE', f'/api/rules/{rule_id}')
-            if response.status_code == 200:
-                return True
-            elif response.status_code == 403:
-                raise PermissionError("Cannot modify rules during lock period")
-        except requests.RequestException:
-            pass
-        return False
-
-    def get_schedules(self) -> List[Schedule]:
-        """Get all schedules.
-
-        Returns:
-            List of Schedule objects
-        """
-        try:
-            response = self._request('GET', '/api/schedules')
-            if response.status_code == 200:
-                return [Schedule(**s) for s in response.json()]
-        except requests.RequestException:
-            pass
-        return []
-
-    def add_schedule(self, name: str, schedule_type: str, **kwargs) -> Optional[Schedule]:
-        """Add a new schedule.
-
-        Args:
-            name: Schedule name
-            schedule_type: 'time_range' or 'locked_until'
-            **kwargs: Additional schedule fields
-
-        Returns:
-            Created Schedule or None if failed
+            Created Block or None if failed
         """
         try:
             data = {
                 'name': name,
-                'schedule_type': schedule_type,
+                'block_mode': block_mode,
+                'lock_mode': lock_mode,
                 **kwargs
             }
-            response = self._request('POST', '/api/schedules', json=data)
+            response = self._request('POST', '/api/blocks', json=data)
             if response.status_code == 200:
-                return Schedule(**response.json())
+                return Block(**response.json())
             elif response.status_code == 403:
-                raise PermissionError("Cannot modify schedules during lock period")
+                raise PermissionError("Cannot modify blocks during lock period")
         except requests.RequestException:
             pass
         return None
 
-    def update_schedule(self, schedule_id: int, **updates) -> Optional[Schedule]:
-        """Update a schedule.
+    def update_block(self, block_id: int, **updates) -> Optional[Block]:
+        """Update a block.
 
         Args:
-            schedule_id: Schedule ID to update
+            block_id: Block ID to update
             **updates: Fields to update
 
         Returns:
-            Updated Schedule or None if failed
+            Updated Block or None if failed
         """
         try:
-            response = self._request('PUT', f'/api/schedules/{schedule_id}', json=updates)
+            response = self._request('PUT', f'/api/blocks/{block_id}', json=updates)
             if response.status_code == 200:
-                return Schedule(**response.json())
+                return Block(**response.json())
             elif response.status_code == 403:
-                raise PermissionError("Cannot modify schedules during lock period")
+                raise PermissionError("Cannot modify blocks during lock period")
         except requests.RequestException:
             pass
         return None
 
-    def delete_schedule(self, schedule_id: int) -> bool:
-        """Delete a schedule.
+    def delete_block(self, block_id: int) -> bool:
+        """Delete a block.
 
         Args:
-            schedule_id: Schedule ID to delete
+            block_id: Block ID to delete
 
         Returns:
             True if deleted successfully
         """
         try:
-            response = self._request('DELETE', f'/api/schedules/{schedule_id}')
+            response = self._request('DELETE', f'/api/blocks/{block_id}')
             if response.status_code == 200:
                 return True
             elif response.status_code == 403:
-                raise PermissionError("Cannot modify schedules during lock period")
+                raise PermissionError("Cannot modify blocks during lock period")
         except requests.RequestException:
             pass
         return False
+
+    def get_block_lock_status(self, block_id: int) -> dict:
+        """Get lock status for a specific block.
+
+        Args:
+            block_id: Block ID to check
+
+        Returns:
+            Dict with 'locked' key indicating lock status
+        """
+        try:
+            response = self._request('GET', f'/api/blocks/{block_id}/lock-status')
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise Exception(f"Failed to get block lock status: {response.text}")
+        except requests.RequestException as e:
+            raise Exception(f"Request failed: {str(e)}")
 
     def get_stats(self) -> Optional[Stats]:
         """Get blocking statistics.
@@ -301,3 +248,31 @@ class DaemonClient:
         except requests.RequestException:
             pass
         return []
+
+    def start_grace_period(self) -> Optional[GracePeriodStatus]:
+        """Start a grace period for adding browser extensions.
+
+        Returns:
+            GracePeriodStatus or None if failed
+        """
+        try:
+            response = self._request('POST', '/api/grace-period')
+            if response.status_code == 200:
+                return GracePeriodStatus(**response.json())
+        except requests.RequestException:
+            pass
+        return None
+
+    def get_grace_period_status(self) -> Optional[GracePeriodStatus]:
+        """Get the current grace period status.
+
+        Returns:
+            GracePeriodStatus or None if failed
+        """
+        try:
+            response = self._request('GET', '/api/grace-period')
+            if response.status_code == 200:
+                return GracePeriodStatus(**response.json())
+        except requests.RequestException:
+            pass
+        return None

@@ -3,9 +3,9 @@
  */
 
 // State
-let isLocked = false;
-let currentRules = [];
-let currentSchedules = [];
+let currentBlocks = [];
+let gracePeriodInterval = null;
+let modalEditingBlockId = null; // null = add mode, number = edit mode
 
 // DOM Elements
 const pages = document.querySelectorAll('.page');
@@ -52,8 +52,7 @@ function showPage(pageName) {
     if (navItem) navItem.classList.add('active');
 
     // Refresh data when switching pages
-    if (pageName === 'rules') refreshRules();
-    if (pageName === 'schedules') refreshSchedules();
+    if (pageName === 'blocks') refreshBlocks();
     if (pageName === 'stats') refreshStats();
     if (pageName === 'browsers') refreshBrowsers();
 }
@@ -70,72 +69,71 @@ function setupModals() {
         });
     });
 
-    // Add rule button
-    document.getElementById('add-rule-btn').addEventListener('click', () => {
-        openModal('add-rule-modal');
+    // Add block button
+    document.getElementById('add-block-btn').addEventListener('click', () => {
+        // Reset to add mode
+        modalEditingBlockId = null;
+        document.querySelector('#add-block-modal h3').textContent = 'Add Block';
+        document.querySelector('#add-block-form button[type="submit"]').textContent = 'Add Block';
+        document.getElementById('add-block-form').reset();
+
+        openModal('add-block-modal');
     });
 
-    // Add schedule button
-    document.getElementById('add-schedule-btn').addEventListener('click', () => {
-        openModal('add-schedule-modal');
-        populateRulesChecklist();
+    // Block mode toggle
+    document.getElementById('block-mode').addEventListener('change', (e) => {
+        const blockTimeFields = document.getElementById('block-time-fields');
+        if (e.target.value === 'time_range') {
+            blockTimeFields.classList.remove('hidden');
+        } else {
+            blockTimeFields.classList.add('hidden');
+        }
     });
 
-    // Schedule type toggle
-    document.getElementById('schedule-type').addEventListener('change', (e) => {
-        const timeRangeFields = document.getElementById('time-range-fields');
-        const lockedUntilFields = document.getElementById('locked-until-fields');
+    // Lock mode toggle
+    document.getElementById('lock-mode').addEventListener('change', (e) => {
+        const lockTimeFields = document.getElementById('lock-time-fields');
+        const lockUntilFields = document.getElementById('lock-until-fields');
+
+        lockTimeFields.classList.add('hidden');
+        lockUntilFields.classList.add('hidden');
 
         if (e.target.value === 'time_range') {
-            timeRangeFields.classList.remove('hidden');
-            lockedUntilFields.classList.add('hidden');
-        } else {
-            timeRangeFields.classList.add('hidden');
-            lockedUntilFields.classList.remove('hidden');
+            lockTimeFields.classList.remove('hidden');
+        } else if (e.target.value === 'locked_until') {
+            lockUntilFields.classList.remove('hidden');
         }
     });
 
     // Refresh browsers button
     document.getElementById('refresh-browsers-btn').addEventListener('click', refreshBrowsers);
+
+    // Add extension button
+    const addExtensionBtn = document.getElementById('add-extension-btn');
+    if (addExtensionBtn) {
+        addExtensionBtn.addEventListener('click', startExtensionGracePeriod);
+    }
 }
 
 /**
  * Setup form handlers
  */
 function setupForms() {
-    // Quick add form
-    document.getElementById('quick-add-form').addEventListener('submit', async (e) => {
+    // Add block form
+    document.getElementById('add-block-form').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const type = document.getElementById('quick-add-type').value;
-        const target = document.getElementById('quick-add-target').value;
 
-        if (!target.trim()) {
-            showToast('Please enter a target', 'error');
-            return;
+        if (modalEditingBlockId !== null) {
+            // Edit mode
+            await updateBlock(modalEditingBlockId);
+        } else {
+            // Add mode
+            await addBlock();
         }
 
-        await addRule(type, target);
-        document.getElementById('quick-add-target').value = '';
-    });
-
-    // Add rule form
-    document.getElementById('add-rule-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const type = document.getElementById('rule-type').value;
-        const target = document.getElementById('rule-target').value;
-        const enabled = document.getElementById('rule-enabled').checked;
-
-        await addRule(type, target, enabled);
-        closeModal('add-rule-modal');
-        document.getElementById('add-rule-form').reset();
-    });
-
-    // Add schedule form
-    document.getElementById('add-schedule-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        await addSchedule();
-        closeModal('add-schedule-modal');
-        document.getElementById('add-schedule-form').reset();
+        closeModal('add-block-modal');
+        document.getElementById('add-block-form').reset();
+        modalEditingBlockId = null; // Reset to add mode
     });
 }
 
@@ -153,25 +151,19 @@ function openModal(modalId) {
 function closeModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) modal.classList.add('hidden');
-}
 
-/**
- * Populate rules checklist in schedule modal
- */
-function populateRulesChecklist() {
-    const container = document.getElementById('schedule-rules-list');
-    if (currentRules.length === 0) {
-        container.innerHTML = '<p class="empty-message">No rules available. Create rules first.</p>';
-        return;
+    // Reset modal to add mode
+    if (modalId === 'add-block-modal') {
+        modalEditingBlockId = null;
+        document.querySelector('#add-block-modal h3').textContent = 'Add Block';
+        document.querySelector('#add-block-form button[type="submit"]').textContent = 'Add Block';
+        document.getElementById('add-block-form').reset();
+
+        // Hide conditional fields
+        document.getElementById('block-time-fields').classList.add('hidden');
+        document.getElementById('lock-time-fields').classList.add('hidden');
+        document.getElementById('lock-until-fields').classList.add('hidden');
     }
-
-    container.innerHTML = currentRules.map(rule => `
-        <label>
-            <input type="checkbox" name="schedule-rules" value="${rule.id}">
-            <span class="type-badge ${rule.rule_type}">${rule.rule_type}</span>
-            ${escapeHtml(rule.target)}
-        </label>
-    `).join('');
 }
 
 /**
@@ -180,7 +172,6 @@ function populateRulesChecklist() {
 async function refreshAll() {
     await Promise.all([
         refreshStatus(),
-        refreshRules(),
         refreshStats()
     ]);
 }
@@ -198,7 +189,7 @@ async function refreshStatus() {
 
             document.getElementById('status-text').textContent = status.locked ? 'Locked' : 'Active';
             document.getElementById('status-details').textContent =
-                `${status.active_rules} rules | ${status.active_schedules} schedules | ${status.browsers_compliant}/${status.browsers_detected} browsers`;
+                `${status.active_blocks} blocks | ${status.browsers_compliant}/${status.browsers_detected} browsers`;
 
             document.getElementById('settings-daemon-status').textContent = 'Running';
         } else {
@@ -233,9 +224,7 @@ function updateDaemonStatus(connected) {
 /**
  * Update lock state UI
  */
-function updateLockState(locked, lockEndTime) {
-    isLocked = locked;
-
+async function updateLockState(locked, lockEndTime) {
     if (locked) {
         lockBanner.classList.remove('hidden');
         if (lockEndTime) {
@@ -249,299 +238,450 @@ function updateLockState(locked, lockEndTime) {
                 lockTimer.textContent = `Unlocks in ${hours}h ${minutes}m`;
             }
         }
-        disableModifications();
     } else {
         lockBanner.classList.add('hidden');
-        enableModifications();
     }
+
+    // Refresh blocks to update per-block lock status
+    await refreshBlocks();
 }
 
 /**
- * Disable modification buttons when locked
+ * Refresh blocks list
  */
-function disableModifications() {
-    document.querySelectorAll('.btn-primary, .btn-danger').forEach(btn => {
-        if (!btn.classList.contains('no-lock')) {
-            btn.disabled = true;
-        }
-    });
-}
-
-/**
- * Enable modification buttons when unlocked
- */
-function enableModifications() {
-    document.querySelectorAll('.btn-primary, .btn-danger').forEach(btn => {
-        btn.disabled = false;
-    });
-}
-
-/**
- * Refresh rules list
- */
-async function refreshRules() {
+async function refreshBlocks() {
     try {
-        currentRules = await pywebview.api.get_rules();
-        renderRules();
+        currentBlocks = await pywebview.api.get_blocks();
+        renderBlocks();
     } catch (error) {
-        console.error('Failed to refresh rules:', error);
+        console.error('Failed to refresh blocks:', error);
     }
 }
 
 /**
- * Render rules table
+ * Render blocks table
  */
-function renderRules() {
-    const tbody = document.getElementById('rules-tbody');
-    const empty = document.getElementById('rules-empty');
-    const table = document.getElementById('rules-table');
+function renderBlocks() {
+    const tbody = document.getElementById('blocks-tbody');
+    const empty = document.getElementById('blocks-empty');
+    const table = document.getElementById('blocks-table');
 
-    if (currentRules.length === 0) {
+    if (currentBlocks.length === 0) {
         table.classList.add('hidden');
         empty.classList.remove('hidden');
         return;
     }
 
-    table.classList.remove('hidden');
-    empty.classList.add('hidden');
-
-    tbody.innerHTML = currentRules.map(rule => `
-        <tr>
-            <td><span class="type-badge ${rule.rule_type}">${rule.rule_type}</span></td>
-            <td>${escapeHtml(rule.target)}</td>
-            <td><span class="status-badge ${rule.enabled ? 'enabled' : 'disabled'}">${rule.enabled ? 'Enabled' : 'Disabled'}</span></td>
-            <td>${formatDate(rule.created_at)}</td>
-            <td class="actions">
-                <button class="btn btn-small btn-secondary" onclick="toggleRule(${rule.id}, ${!rule.enabled})">
-                    ${rule.enabled ? 'Disable' : 'Enable'}
-                </button>
-                <button class="btn btn-small btn-danger" onclick="deleteRule(${rule.id})">Delete</button>
-            </td>
-        </tr>
-    `).join('');
-}
-
-/**
- * Add a new rule
- */
-async function addRule(type, target, enabled = true) {
-    if (isLocked) {
-        showToast('Cannot modify rules during lock period', 'warning');
-        return;
-    }
-
     try {
-        const result = await pywebview.api.add_rule(type, target, enabled);
-        if (result.success) {
-            showToast('Rule added successfully', 'success');
-            await refreshRules();
-        } else {
-            showToast(result.error || 'Failed to add rule', 'error');
-        }
+        table.classList.remove('hidden');
+        empty.classList.add('hidden');
+
+        tbody.innerHTML = currentBlocks.map(block => {
+            try {
+                let blockDetails = formatBlockMode(block);
+                let lockDetails = formatLockMode(block);
+
+                // Count rules from text fields
+                const websitesCount = block.websites_blocked ? block.websites_blocked.split('\n').filter(s => s.trim()).length : 0;
+                const appsCount = block.apps_blocked ? block.apps_blocked.split('\n').filter(s => s.trim()).length : 0;
+                const totalRules = websitesCount + appsCount;
+
+                return `
+                    <tr>
+                        <td>${escapeHtml(block.name)}</td>
+                        <td>${blockDetails}</td>
+                        <td>${lockDetails}</td>
+                        <td>${totalRules} rules</td>
+                        <td><span class="status-badge ${block.enabled ? 'enabled' : 'disabled'}">${block.enabled ? 'Enabled' : 'Disabled'}</span></td>
+                        <td class="actions">
+                            <button class="btn btn-small btn-secondary" onclick="editBlock(${block.id})">Edit</button>
+                            <button class="btn btn-small btn-secondary" onclick="toggleBlock(${block.id}, ${!block.enabled})">
+                                ${block.enabled ? 'Disable' : 'Enable'}
+                            </button>
+                            <button class="btn btn-small btn-danger" onclick="deleteBlock(${block.id})">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            } catch (rowError) {
+                console.error('Error rendering block row:', block.id, rowError);
+                return `<tr><td colspan="6">Error rendering block: ${escapeHtml(block.name)}</td></tr>`;
+            }
+        }).join('');
     } catch (error) {
-        showToast('Failed to add rule', 'error');
-    }
-}
-
-/**
- * Toggle a rule's enabled state
- */
-async function toggleRule(ruleId, enabled) {
-    if (isLocked) {
-        showToast('Cannot modify rules during lock period', 'warning');
-        return;
-    }
-
-    try {
-        const result = await pywebview.api.update_rule(ruleId, { enabled: enabled });
-        if (result.success) {
-            await refreshRules();
-        } else {
-            showToast(result.error || 'Failed to update rule', 'error');
-        }
-    } catch (error) {
-        showToast('Failed to update rule', 'error');
-    }
-}
-
-/**
- * Delete a rule
- */
-async function deleteRule(ruleId) {
-    if (isLocked) {
-        showToast('Cannot modify rules during lock period', 'warning');
-        return;
-    }
-
-    if (!confirm('Are you sure you want to delete this rule?')) {
-        return;
-    }
-
-    try {
-        const result = await pywebview.api.delete_rule(ruleId);
-        if (result.success) {
-            showToast('Rule deleted', 'success');
-            await refreshRules();
-        } else {
-            showToast(result.error || 'Failed to delete rule', 'error');
-        }
-    } catch (error) {
-        showToast('Failed to delete rule', 'error');
-    }
-}
-
-/**
- * Refresh schedules list
- */
-async function refreshSchedules() {
-    try {
-        currentSchedules = await pywebview.api.get_schedules();
-        renderSchedules();
-    } catch (error) {
-        console.error('Failed to refresh schedules:', error);
-    }
-}
-
-/**
- * Render schedules table
- */
-function renderSchedules() {
-    const tbody = document.getElementById('schedules-tbody');
-    const empty = document.getElementById('schedules-empty');
-    const table = document.getElementById('schedules-table');
-
-    if (currentSchedules.length === 0) {
+        console.error('Error rendering blocks table:', error);
+        showToast('Error displaying blocks. Check console for details.', 'error');
         table.classList.add('hidden');
         empty.classList.remove('hidden');
-        return;
     }
-
-    table.classList.remove('hidden');
-    empty.classList.add('hidden');
-
-    tbody.innerHTML = currentSchedules.map(schedule => {
-        let details = '';
-        if (schedule.schedule_type === 'time_range') {
-            const days = schedule.days_of_week ? formatDays(JSON.parse(schedule.days_of_week)) : 'All days';
-            details = `${days} ${schedule.start_time} - ${schedule.end_time}`;
-        } else {
-            details = `Until ${formatDate(schedule.locked_until)}`;
-        }
-
-        return `
-            <tr>
-                <td>${escapeHtml(schedule.name)}</td>
-                <td><span class="type-badge">${schedule.schedule_type === 'time_range' ? 'Time Range' : 'Lock Until'}</span></td>
-                <td>${details}</td>
-                <td>${schedule.rule_ids.length} rules</td>
-                <td><span class="status-badge ${schedule.enabled ? 'enabled' : 'disabled'}">${schedule.enabled ? 'Enabled' : 'Disabled'}</span></td>
-                <td class="actions">
-                    <button class="btn btn-small btn-secondary" onclick="toggleSchedule(${schedule.id}, ${!schedule.enabled})">
-                        ${schedule.enabled ? 'Disable' : 'Enable'}
-                    </button>
-                    <button class="btn btn-small btn-danger" onclick="deleteSchedule(${schedule.id})">Delete</button>
-                </td>
-            </tr>
-        `;
-    }).join('');
 }
 
 /**
- * Add a new schedule
+ * Safely parse JSON with fallback
  */
-async function addSchedule() {
-    if (isLocked) {
-        showToast('Cannot modify schedules during lock period', 'warning');
-        return;
+function safeParseJSON(value, defaultValue = null) {
+    if (!value) return defaultValue;
+
+    // If already parsed (is an object/array), return it
+    if (typeof value === 'object') return value;
+
+    // Try to parse string
+    try {
+        return JSON.parse(value);
+    } catch (e) {
+        console.warn('Failed to parse JSON:', value, e);
+        return defaultValue;
     }
+}
 
-    const name = document.getElementById('schedule-name').value;
-    const scheduleType = document.getElementById('schedule-type').value;
-    const enabled = document.getElementById('schedule-enabled').checked;
+/**
+ * Format block mode for display
+ */
+function formatBlockMode(block) {
+    if (block.block_mode === 'always') {
+        return '<span class="type-badge">Always</span>';
+    } else if (block.block_mode === 'time_range') {
+        const daysArray = safeParseJSON(block.block_days_of_week, []);
+        const days = daysArray.length > 0 ? formatDays(daysArray) : 'All days';
+        return `<span class="type-badge">Time Range</span><br><small>${days} ${block.block_start_time || ''} - ${block.block_end_time || ''}</small>`;
+    } else {
+        return '<span class="type-badge disabled">Disabled</span>';
+    }
+}
 
-    // Get selected rules
-    const ruleCheckboxes = document.querySelectorAll('input[name="schedule-rules"]:checked');
-    const ruleIds = Array.from(ruleCheckboxes).map(cb => parseInt(cb.value));
+/**
+ * Format lock mode for display
+ */
+function formatLockMode(block) {
+    if (block.lock_mode === 'none') {
+        return '<span class="type-badge">No Lock</span>';
+    } else if (block.lock_mode === 'time_range') {
+        const daysArray = safeParseJSON(block.lock_days_of_week, []);
+        const days = daysArray.length > 0 ? formatDays(daysArray) : 'All days';
+        return `<span class="type-badge">Time Lock</span><br><small>${days} ${block.lock_start_time || ''} - ${block.lock_end_time || ''}</small>`;
+    } else if (block.lock_mode === 'locked_until') {
+        return `<span class="type-badge">Lock Until</span><br><small>${formatDate(block.lock_until)}</small>`;
+    }
+    return '-';
+}
+
+/**
+ * Add a new block
+ */
+async function addBlock() {
+    const name = document.getElementById('block-name').value;
+    const blockMode = document.getElementById('block-mode').value;
+    const lockMode = document.getElementById('lock-mode').value;
+    const enabled = document.getElementById('block-enabled').checked;
+
+    // Get rules from text areas
+    const websitesBlocked = document.getElementById('websites-blocked').value.trim() || null;
+    const websitesAllowed = document.getElementById('websites-allowed').value.trim() || null;
+    const appsBlocked = document.getElementById('apps-blocked').value.trim() || null;
+    const appsAllowed = document.getElementById('apps-allowed').value.trim() || null;
 
     const data = {
         name: name,
-        schedule_type: scheduleType,
+        block_mode: blockMode,
+        lock_mode: lockMode,
         enabled: enabled,
-        rule_ids: ruleIds
+        websites_blocked: websitesBlocked,
+        websites_allowed: websitesAllowed,
+        apps_blocked: appsBlocked,
+        apps_allowed: appsAllowed
     };
 
-    if (scheduleType === 'time_range') {
-        const dayCheckboxes = document.querySelectorAll('input[name="days"]:checked');
+    // Block time range
+    if (blockMode === 'time_range') {
+        const dayCheckboxes = document.querySelectorAll('input[name="block-days"]:checked');
         const days = Array.from(dayCheckboxes).map(cb => parseInt(cb.value));
-        data.days_of_week = JSON.stringify(days);
-        data.start_time = document.getElementById('schedule-start').value;
-        data.end_time = document.getElementById('schedule-end').value;
-    } else {
-        const date = document.getElementById('schedule-date').value;
-        const time = document.getElementById('schedule-time').value;
+        data.block_days_of_week = JSON.stringify(days);
+        data.block_start_time = document.getElementById('block-start').value;
+        data.block_end_time = document.getElementById('block-end').value;
+    }
+
+    // Lock time range
+    if (lockMode === 'time_range') {
+        const dayCheckboxes = document.querySelectorAll('input[name="lock-days"]:checked');
+        const days = Array.from(dayCheckboxes).map(cb => parseInt(cb.value));
+        data.lock_days_of_week = JSON.stringify(days);
+        data.lock_start_time = document.getElementById('lock-start').value;
+        data.lock_end_time = document.getElementById('lock-end').value;
+    } else if (lockMode === 'locked_until') {
+        const date = document.getElementById('lock-date').value;
+        const time = document.getElementById('lock-time').value;
         if (date && time) {
-            data.locked_until = `${date}T${time}:00`;
+            data.lock_until = `${date}T${time}:00`;
         }
     }
 
     try {
-        const result = await pywebview.api.add_schedule(data);
+        const result = await pywebview.api.add_block(data);
         if (result.success) {
-            showToast('Schedule added successfully', 'success');
-            await refreshSchedules();
+            showToast('Block added successfully', 'success');
+            await refreshBlocks();
         } else {
-            showToast(result.error || 'Failed to add schedule', 'error');
+            showToast(result.error || 'Failed to add block', 'error');
         }
     } catch (error) {
-        showToast('Failed to add schedule', 'error');
+        showToast('Failed to add block', 'error');
     }
 }
 
 /**
- * Toggle a schedule's enabled state
+ * Update an existing block
  */
-async function toggleSchedule(scheduleId, enabled) {
-    if (isLocked) {
-        showToast('Cannot modify schedules during lock period', 'warning');
-        return;
+async function updateBlock(blockId) {
+    const name = document.getElementById('block-name').value;
+    const blockMode = document.getElementById('block-mode').value;
+    const lockMode = document.getElementById('lock-mode').value;
+    const enabled = document.getElementById('block-enabled').checked;
+
+    // Get rules from text areas
+    const websitesBlocked = document.getElementById('websites-blocked').value.trim() || null;
+    const websitesAllowed = document.getElementById('websites-allowed').value.trim() || null;
+    const appsBlocked = document.getElementById('apps-blocked').value.trim() || null;
+    const appsAllowed = document.getElementById('apps-allowed').value.trim() || null;
+
+    const data = {
+        name: name,
+        block_mode: blockMode,
+        lock_mode: lockMode,
+        enabled: enabled,
+        websites_blocked: websitesBlocked,
+        websites_allowed: websitesAllowed,
+        apps_blocked: appsBlocked,
+        apps_allowed: appsAllowed
+    };
+
+    // Block time range
+    if (blockMode === 'time_range') {
+        const dayCheckboxes = document.querySelectorAll('input[name="block-days"]:checked');
+        const days = Array.from(dayCheckboxes).map(cb => parseInt(cb.value));
+        data.block_days_of_week = JSON.stringify(days);
+        data.block_start_time = document.getElementById('block-start').value;
+        data.block_end_time = document.getElementById('block-end').value;
+    }
+
+    // Lock time range
+    if (lockMode === 'time_range') {
+        const dayCheckboxes = document.querySelectorAll('input[name="lock-days"]:checked');
+        const days = Array.from(dayCheckboxes).map(cb => parseInt(cb.value));
+        data.lock_days_of_week = JSON.stringify(days);
+        data.lock_start_time = document.getElementById('lock-start').value;
+        data.lock_end_time = document.getElementById('lock-end').value;
+    } else if (lockMode === 'locked_until') {
+        const date = document.getElementById('lock-date').value;
+        const time = document.getElementById('lock-time').value;
+        if (date && time) {
+            data.lock_until = `${date}T${time}:00`;
+        }
     }
 
     try {
-        const result = await pywebview.api.update_schedule(scheduleId, { enabled: enabled });
+        const result = await pywebview.api.update_block(blockId, data);
         if (result.success) {
-            await refreshSchedules();
+            showToast('Block updated successfully', 'success');
+            await refreshBlocks();
         } else {
-            showToast(result.error || 'Failed to update schedule', 'error');
+            showToast(result.error || 'Failed to update block', 'error');
         }
     } catch (error) {
-        showToast('Failed to update schedule', 'error');
+        console.error('Update block error:', error);
+        showToast('Failed to update block', 'error');
     }
 }
 
 /**
- * Delete a schedule
+ * Toggle a block's enabled state
  */
-async function deleteSchedule(scheduleId) {
-    if (isLocked) {
-        showToast('Cannot modify schedules during lock period', 'warning');
-        return;
-    }
-
-    if (!confirm('Are you sure you want to delete this schedule?')) {
-        return;
-    }
-
+async function toggleBlock(blockId, enabled) {
     try {
-        const result = await pywebview.api.delete_schedule(scheduleId);
+        // Check if block is locked
+        const lockStatus = await pywebview.api.get_block_lock_status(blockId);
+        if (lockStatus.locked) {
+            showToast('This block is currently locked', 'warning');
+            return;
+        }
+
+        const result = await pywebview.api.update_block(blockId, { enabled: enabled });
         if (result.success) {
-            showToast('Schedule deleted', 'success');
-            await refreshSchedules();
+            await refreshBlocks();
         } else {
-            showToast(result.error || 'Failed to delete schedule', 'error');
+            showToast(result.error || 'Failed to update block', 'error');
         }
     } catch (error) {
-        showToast('Failed to delete schedule', 'error');
+        showToast('Failed to update block', 'error');
     }
+}
+
+/**
+ * Delete a block
+ */
+async function deleteBlock(blockId) {
+    try {
+        // Check if block is locked
+        const lockStatus = await pywebview.api.get_block_lock_status(blockId);
+        if (lockStatus.locked) {
+            showToast('This block is currently locked', 'warning');
+            return;
+        }
+
+        if (!confirm('Are you sure you want to delete this block?')) {
+            return;
+        }
+
+        const result = await pywebview.api.delete_block(blockId);
+        if (result.success) {
+            showToast('Block deleted', 'success');
+            await refreshBlocks();
+        } else {
+            showToast(result.error || 'Failed to delete block', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to delete block', 'error');
+    }
+}
+
+/**
+ * Edit a block
+ */
+async function editBlock(blockId) {
+    try {
+        // Check if block is locked
+        const lockStatus = await pywebview.api.get_block_lock_status(blockId);
+        if (lockStatus.locked) {
+            showToast('This block is currently locked', 'warning');
+            return;
+        }
+
+        // Find block in currentBlocks array
+        const block = currentBlocks.find(b => b.id === blockId);
+        if (!block) {
+            showToast('Block not found', 'error');
+            return;
+        }
+
+        // Set modal to edit mode
+        modalEditingBlockId = blockId;
+
+        // Update modal UI
+        document.querySelector('#add-block-modal h3').textContent = 'Edit Block';
+        document.querySelector('#add-block-form button[type="submit"]').textContent = 'Save Changes';
+
+        // Populate basic fields
+        document.getElementById('block-name').value = block.name;
+        document.getElementById('block-mode').value = block.block_mode;
+        document.getElementById('lock-mode').value = block.lock_mode;
+        document.getElementById('block-enabled').checked = block.enabled;
+
+        // Populate block time range fields
+        if (block.block_mode === 'time_range') {
+            document.getElementById('block-time-fields').classList.remove('hidden');
+
+            // Parse and check block days
+            const blockDays = safeParseJSON(block.block_days_of_week, []);
+            document.querySelectorAll('input[name="block-days"]').forEach(checkbox => {
+                checkbox.checked = blockDays.includes(parseInt(checkbox.value));
+            });
+
+            document.getElementById('block-start').value = block.block_start_time || '09:00';
+            document.getElementById('block-end').value = block.block_end_time || '17:00';
+        } else {
+            document.getElementById('block-time-fields').classList.add('hidden');
+        }
+
+        // Populate lock time range fields
+        if (block.lock_mode === 'time_range') {
+            document.getElementById('lock-time-fields').classList.remove('hidden');
+            document.getElementById('lock-until-fields').classList.add('hidden');
+
+            const lockDays = safeParseJSON(block.lock_days_of_week, []);
+            document.querySelectorAll('input[name="lock-days"]').forEach(checkbox => {
+                checkbox.checked = lockDays.includes(parseInt(checkbox.value));
+            });
+
+            document.getElementById('lock-start').value = block.lock_start_time || '09:00';
+            document.getElementById('lock-end').value = block.lock_end_time || '17:00';
+        } else if (block.lock_mode === 'locked_until') {
+            document.getElementById('lock-time-fields').classList.add('hidden');
+            document.getElementById('lock-until-fields').classList.remove('hidden');
+
+            // Parse lock_until datetime (format: "2024-01-15T17:00:00")
+            if (block.lock_until) {
+                const lockDate = new Date(block.lock_until);
+                const dateStr = lockDate.toISOString().split('T')[0];
+                const timeStr = lockDate.toTimeString().slice(0, 5);
+                document.getElementById('lock-date').value = dateStr;
+                document.getElementById('lock-time').value = timeStr;
+            }
+        } else {
+            document.getElementById('lock-time-fields').classList.add('hidden');
+            document.getElementById('lock-until-fields').classList.add('hidden');
+        }
+
+        // Populate text areas (websites/apps)
+        document.getElementById('websites-blocked').value = block.websites_blocked || '';
+        document.getElementById('websites-allowed').value = block.websites_allowed || '';
+        document.getElementById('apps-blocked').value = block.apps_blocked || '';
+        document.getElementById('apps-allowed').value = block.apps_allowed || '';
+
+        // Open modal
+        openModal('add-block-modal');
+
+    } catch (error) {
+        console.error('Failed to edit block:', error);
+        showToast('Failed to load block for editing', 'error');
+    }
+}
+
+/**
+ * Start extension grace period
+ */
+async function startExtensionGracePeriod() {
+    try {
+        const result = await pywebview.api.start_extension_grace_period();
+
+        if (result.success) {
+            showToast('Grace period started - you have 30 seconds to add the extension', 'success');
+            showGracePeriodBanner(result.remaining_seconds);
+        } else {
+            showToast(result.error || 'Failed to start grace period', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to start grace period:', error);
+        showToast('Failed to start grace period', 'error');
+    }
+}
+
+/**
+ * Show grace period banner with countdown
+ */
+function showGracePeriodBanner(seconds) {
+    const banner = document.getElementById('grace-period-banner');
+    const timer = document.getElementById('grace-timer');
+
+    if (!banner || !timer) return;
+
+    banner.classList.remove('hidden');
+    timer.textContent = `${seconds}s`;
+
+    // Clear any existing interval
+    if (gracePeriodInterval) {
+        clearInterval(gracePeriodInterval);
+    }
+
+    let remaining = seconds;
+    gracePeriodInterval = setInterval(() => {
+        remaining--;
+        timer.textContent = `${remaining}s`;
+
+        if (remaining <= 0) {
+            clearInterval(gracePeriodInterval);
+            gracePeriodInterval = null;
+            banner.classList.add('hidden');
+            showToast('Grace period ended', 'info');
+        }
+    }, 1000);
 }
 
 /**

@@ -9,6 +9,7 @@ const RULES_REFRESH_INTERVAL = 60000; // 1 minute
 
 let browserPID = null;
 let blockedSites = [];
+let allowedSites = [];
 let heartbeatIntervalId = null;
 let rulesRefreshIntervalId = null;
 
@@ -173,23 +174,26 @@ function startHeartbeat() {
  */
 async function fetchBlockedSites() {
     try {
-        const response = await fetch(`${DAEMON_URL}/api/rules`);
+        const response = await fetch(`${DAEMON_URL}/api/blocked-sites`);
 
         if (!response.ok) {
-            console.error('Failed to fetch rules:', response.status);
+            console.error('Failed to fetch blocked sites:', response.status);
             return;
         }
 
-        const rules = await response.json();
+        const data = await response.json();
 
-        blockedSites = rules
-            .filter(r => r.rule_type === 'website' && r.enabled)
-            .map(r => r.target);
+        blockedSites = data.blocked || [];
+        allowedSites = data.allowed || [];
 
         console.log('Blocked sites updated:', blockedSites.length, 'patterns');
+        console.log('Allowed sites:', allowedSites.length, 'patterns');
 
         // Store in local storage for popup access
-        chrome.storage.local.set({ blockedSites: blockedSites });
+        chrome.storage.local.set({
+            blockedSites: blockedSites,
+            allowedSites: allowedSites
+        });
 
     } catch (error) {
         console.error('Failed to fetch blocked sites:', error);

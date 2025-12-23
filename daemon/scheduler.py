@@ -1,171 +1,185 @@
-"""Schedule management and checking for the website blocker daemon."""
+"""Block schedule management and checking for the website blocker daemon."""
 
 from datetime import datetime, time as dt_time
 from typing import List, Set
 import json
 import logging
+import sys
+import os
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from database import Schedule, ScheduleRule, BlockRule
+# Add daemon directory to Python path for absolute imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from database import Block
 
 logger = logging.getLogger(__name__)
 
 
-class ScheduleChecker:
-    """Checks schedules and determines which rules should be active."""
+class BlockChecker:
+    """Checks blocks and determines which blocks should be active based on block_mode."""
 
     def __init__(self, session_factory):
-        """Initialize the schedule checker.
+        """Initialize the block checker.
 
         Args:
             session_factory: Async session factory for database access
         """
         self._session_factory = session_factory
-        self._active_rules: Set[int] = set()
+        self._active_blocks: Set[int] = set()
 
     def _parse_time(self, time_str: str) -> dt_time:
         """Parse a time string like '09:00' into a time object."""
         parts = time_str.split(':')
         return dt_time(int(parts[0]), int(parts[1]))
 
-    def _is_schedule_active(self, schedule: Schedule, now: datetime) -> bool:
-        """Check if a schedule is currently active.
+    def _parse_days_of_week(self, days_of_week: str) -> List[int]:
+        """Parse days of week string into list of integers.
+
+        Handles both JSON arrays like "[0,1,2]" and comma-separated strings like "0,1,2".
 
         Args:
-            schedule: A Schedule object
+            days_of_week: Days string in either format
+
+        Returns:
+            List of day integers (0=Monday)
+        """
+        if not days_of_week:
+            return []
+
+        # Try JSON first
+        try:
+            days = json.loads(days_of_week)
+            if isinstance(days, list):
+                return [int(d) for d in days]
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Try comma-separated
+        try:
+            return [int(d.strip()) for d in days_of_week.split(',') if d.strip()]
+        except ValueError:
+            logger.error(f"Invalid days_of_week format: {days_of_week}")
+            return []
+
+    def _is_time_in_range(self, days_of_week: str, start_time: str, end_time: str, now: datetime) -> bool:
+        """Check if current time is within the specified time range.
+
+        Args:
+            days_of_week: Days string (JSON array or comma-separated)
+            start_time: Start time string like "09:00"
+            end_time: End time string like "17:00"
             now: Current datetime
 
         Returns:
-            bool: True if the schedule is active now
+            bool: True if current time is in the range
         """
-        if not schedule.enabled:
+        # Check day of week
+        if days_of_week:
+            days = self._parse_days_of_week(days_of_week)
+            if days and now.weekday() not in days:
+                return False
+
+        # Check time range
+        if start_time and end_time:
+            start = self._parse_time(start_time)
+            end = self._parse_time(end_time)
+            current_time = now.time()
+
+            # Handle overnight schedules (e.g., 22:00 - 06:00)
+            if start <= end:
+                return start <= current_time <= end
+            else:
+                return current_time >= start or current_time <= end
+
+        return True  # No time range specified means always active
+
+    def _is_block_active(self, block: Block, now: datetime) -> bool:
+        """Check if a block's rules should currently be enforced.
+
+        Args:
+            block: A Block object
+            now: Current datetime
+
+        Returns:
+            bool: True if the block's rules should be active
+        """
+        if not block.enabled:
             return False
 
-        if schedule.schedule_type == 'locked_until':
-            if schedule.locked_until:
-                return now < schedule.locked_until
+        if block.block_mode == 'disabled':
             return False
 
-        elif schedule.schedule_type == 'time_range':
-            # Check day of week (0=Monday in Python)
-            if schedule.days_of_week:
-                try:
-                    days = json.loads(schedule.days_of_week)
-                    if now.weekday() not in days:
-                        return False
-                except json.JSONDecodeError:
-                    logger.error(f"Invalid days_of_week JSON in schedule {schedule.id}")
-                    return False
+        if block.block_mode == 'always':
+            return True
 
-            # Check time range
-            if schedule.start_time and schedule.end_time:
-                start = self._parse_time(schedule.start_time)
-                end = self._parse_time(schedule.end_time)
-                current_time = now.time()
-
-                # Handle overnight schedules (e.g., 22:00 - 06:00)
-                if start <= end:
-                    return start <= current_time <= end
-                else:
-                    return current_time >= start or current_time <= end
+        if block.block_mode == 'time_range':
+            return self._is_time_in_range(
+                block.block_days_of_week,
+                block.block_start_time,
+                block.block_end_time,
+                now
+            )
 
         return False
 
-    async def get_active_rules(self) -> List[BlockRule]:
-        """Get all currently active blocking rules based on schedules.
+    async def get_active_blocks(self) -> List[Block]:
+        """Get all currently active blocks based on schedules.
 
         Returns:
-            List of BlockRule objects that should be enforced now
+            List of Block objects that should be enforced now
         """
         now = datetime.now()
-        active_rule_ids: Set[int] = set()
+        active_blocks = []
 
         async with self._session_factory() as session:
-            # Get all schedules with their associated rules
-            result = await session.execute(
-                select(Schedule).options(selectinload(Schedule.schedule_rules))
-            )
-            schedules = result.scalars().all()
+            result = await session.execute(select(Block))
+            blocks = result.scalars().all()
 
-            for schedule in schedules:
-                if self._is_schedule_active(schedule, now):
-                    for schedule_rule in schedule.schedule_rules:
-                        active_rule_ids.add(schedule_rule.rule_id)
+            for block in blocks:
+                if self._is_block_active(block, now):
+                    active_blocks.append(block)
 
-            # Also get rules that are enabled but not attached to any schedule
-            # (always-on rules)
-            result = await session.execute(
-                select(BlockRule).where(BlockRule.enabled == True)
-            )
-            all_enabled_rules = result.scalars().all()
-
-            # Filter to only rules in active schedules or rules with no schedule
-            active_rules = []
-            for rule in all_enabled_rules:
-                if rule.id in active_rule_ids:
-                    active_rules.append(rule)
-                elif not rule.schedule_rules:
-                    # Rule has no schedule associations - it's always active
-                    active_rules.append(rule)
-
-            return active_rules
-
-    async def get_active_website_rules(self) -> List[BlockRule]:
-        """Get active website blocking rules.
-
-        Returns:
-            List of active BlockRule objects with rule_type='website'
-        """
-        active = await self.get_active_rules()
-        return [r for r in active if r.rule_type == 'website']
-
-    async def get_active_app_rules(self) -> List[BlockRule]:
-        """Get active application blocking rules.
-
-        Returns:
-            List of active BlockRule objects with rule_type='application'
-        """
-        active = await self.get_active_rules()
-        return [r for r in active if r.rule_type == 'application']
+        return active_blocks
 
     async def check_schedules(self) -> Set[int]:
-        """Check all schedules and return set of active rule IDs.
+        """Check all blocks and return set of active block IDs.
 
-        This method should be called periodically to update the active rules.
+        This method should be called periodically to update the active blocks.
 
         Returns:
-            Set of rule IDs that should currently be active
+            Set of block IDs that should currently be active
         """
-        active_rules = await self.get_active_rules()
-        new_active_rules = {r.id for r in active_rules}
+        active_blocks = await self.get_active_blocks()
+        new_active_blocks = {b.id for b in active_blocks}
 
         # Log changes
-        activated = new_active_rules - self._active_rules
-        deactivated = self._active_rules - new_active_rules
+        activated = new_active_blocks - self._active_blocks
+        deactivated = self._active_blocks - new_active_blocks
 
-        for rule_id in activated:
-            logger.info(f"Rule {rule_id} activated by schedule")
+        for block_id in activated:
+            logger.info(f"Block {block_id} activated")
 
-        for rule_id in deactivated:
-            logger.info(f"Rule {rule_id} deactivated by schedule")
+        for block_id in deactivated:
+            logger.info(f"Block {block_id} deactivated")
 
-        self._active_rules = new_active_rules
-        return new_active_rules
-
-
-# Global scheduler instance
-_scheduler: 'ScheduleChecker | None' = None
+        self._active_blocks = new_active_blocks
+        return new_active_blocks
 
 
-def init_scheduler(session_factory) -> ScheduleChecker:
-    """Initialize and get the global schedule checker instance."""
+# Global checker instance
+_scheduler: 'BlockChecker | None' = None
+
+
+def init_scheduler(session_factory) -> BlockChecker:
+    """Initialize and get the global block checker instance."""
     global _scheduler
-    _scheduler = ScheduleChecker(session_factory)
+    _scheduler = BlockChecker(session_factory)
     return _scheduler
 
 
-def get_scheduler() -> 'ScheduleChecker | None':
-    """Get the global schedule checker instance."""
+def get_scheduler() -> 'BlockChecker | None':
+    """Get the global block checker instance."""
     return _scheduler

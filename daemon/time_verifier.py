@@ -5,6 +5,11 @@ from typing import Optional
 import logging
 import ntplib
 import socket
+import sys
+import os
+
+# Add daemon directory to Python path for absolute imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import get_config
 

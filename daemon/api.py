@@ -1,5 +1,11 @@
 """FastAPI REST API for the website blocker daemon."""
 
+import sys
+import os
+
+# Add daemon directory to Python path for absolute imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from datetime import datetime
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Depends
@@ -9,7 +15,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import BlockRule, Schedule, ScheduleRule, BlockEvent, create_session_factory
+from database import Block, BlockEvent, create_session_factory
 from heartbeat_tracker import get_heartbeat_tracker
 from lock_manager import get_lock_manager
 from blocker import get_site_blocker
@@ -26,62 +32,61 @@ class HeartbeatResponse(BaseModel):
     status: str
 
 
-class RuleCreate(BaseModel):
-    rule_type: str  # 'website' or 'application'
-    target: str
-    enabled: bool = True
 
-
-class RuleUpdate(BaseModel):
-    rule_type: Optional[str] = None
-    target: Optional[str] = None
-    enabled: Optional[bool] = None
-
-
-class RuleResponse(BaseModel):
-    id: int
-    rule_type: str
-    target: str
-    enabled: bool
-    created_at: str
-
-    class Config:
-        from_attributes = True
-
-
-class ScheduleCreate(BaseModel):
+class BlockCreate(BaseModel):
     name: str
-    schedule_type: str  # 'time_range' or 'locked_until'
-    days_of_week: Optional[str] = None  # JSON array
-    start_time: Optional[str] = None
-    end_time: Optional[str] = None
-    locked_until: Optional[str] = None  # ISO format datetime
+    block_mode: str = 'always'  # 'always', 'time_range', 'disabled'
+    block_days_of_week: Optional[str] = None  # JSON array
+    block_start_time: Optional[str] = None
+    block_end_time: Optional[str] = None
+    lock_mode: str = 'none'  # 'none', 'time_range', 'locked_until'
+    lock_days_of_week: Optional[str] = None
+    lock_start_time: Optional[str] = None
+    lock_end_time: Optional[str] = None
+    lock_until: Optional[str] = None  # ISO format datetime
     enabled: bool = True
-    rule_ids: List[int] = []
+    websites_blocked: Optional[str] = None  # Newline-separated list
+    websites_allowed: Optional[str] = None  # Newline-separated allow list
+    apps_blocked: Optional[str] = None      # Newline-separated list
+    apps_allowed: Optional[str] = None      # Newline-separated allow list
 
 
-class ScheduleUpdate(BaseModel):
+class BlockUpdate(BaseModel):
     name: Optional[str] = None
-    schedule_type: Optional[str] = None
-    days_of_week: Optional[str] = None
-    start_time: Optional[str] = None
-    end_time: Optional[str] = None
-    locked_until: Optional[str] = None
+    block_mode: Optional[str] = None
+    block_days_of_week: Optional[str] = None
+    block_start_time: Optional[str] = None
+    block_end_time: Optional[str] = None
+    lock_mode: Optional[str] = None
+    lock_days_of_week: Optional[str] = None
+    lock_start_time: Optional[str] = None
+    lock_end_time: Optional[str] = None
+    lock_until: Optional[str] = None
     enabled: Optional[bool] = None
-    rule_ids: Optional[List[int]] = None
+    websites_blocked: Optional[str] = None
+    websites_allowed: Optional[str] = None
+    apps_blocked: Optional[str] = None
+    apps_allowed: Optional[str] = None
 
 
-class ScheduleResponse(BaseModel):
+class BlockResponse(BaseModel):
     id: int
     name: str
-    schedule_type: str
-    days_of_week: Optional[str]
-    start_time: Optional[str]
-    end_time: Optional[str]
-    locked_until: Optional[str]
+    block_mode: str
+    block_days_of_week: Optional[str]
+    block_start_time: Optional[str]
+    block_end_time: Optional[str]
+    lock_mode: str
+    lock_days_of_week: Optional[str]
+    lock_start_time: Optional[str]
+    lock_end_time: Optional[str]
+    lock_until: Optional[str]
+    websites_blocked: Optional[str]
+    websites_allowed: Optional[str]
+    apps_blocked: Optional[str]
+    apps_allowed: Optional[str]
     enabled: bool
     created_at: str
-    rule_ids: List[int]
 
     class Config:
         from_attributes = True
@@ -92,7 +97,7 @@ class StatusResponse(BaseModel):
     locked: bool
     lock_end_time: Optional[str]
     active_rules: int
-    active_schedules: int
+    active_blocks: int
     browsers_detected: int
     browsers_compliant: int
 
@@ -112,6 +117,12 @@ class BrowserStatus(BaseModel):
     compliant: bool
     last_heartbeat: str
     incognito_active: bool
+
+
+class GracePeriodResponse(BaseModel):
+    active: bool
+    expires_at: Optional[str]
+    remaining_seconds: Optional[int]
 
 
 # Create FastAPI app
@@ -148,14 +159,20 @@ async def get_session():
         yield session
 
 
-async def check_lock_mode():
-    """Check if the system is in lock mode."""
+async def check_block_lock(block_id: int):
+    """Check if a specific block is locked.
+
+    Raises:
+        HTTPException: 403 if block is locked
+    """
     lock_manager = get_lock_manager()
-    if lock_manager and await lock_manager.is_locked():
+    if lock_manager and await lock_manager.is_block_locked(block_id):
         raise HTTPException(
             status_code=403,
-            detail="Cannot modify configuration during lock period"
+            detail=f"Cannot modify block {block_id}: currently locked"
         )
+
+
 
 
 # Heartbeat endpoint
@@ -171,6 +188,39 @@ async def receive_heartbeat(heartbeat: HeartbeatRequest):
     return HeartbeatResponse(status="ok")
 
 
+# Grace period endpoints
+@app.post("/api/grace-period", response_model=GracePeriodResponse)
+async def start_grace_period():
+    """Start a 30-second grace period for adding browser extensions."""
+    tracker = get_heartbeat_tracker()
+    expires_at = tracker.start_grace_period(duration_seconds=30)
+
+    return GracePeriodResponse(
+        active=True,
+        expires_at=expires_at.isoformat(),
+        remaining_seconds=30
+    )
+
+
+@app.get("/api/grace-period", response_model=GracePeriodResponse)
+async def get_grace_period_status():
+    """Get the current grace period status."""
+    tracker = get_heartbeat_tracker()
+
+    if tracker.is_grace_period_active():
+        return GracePeriodResponse(
+            active=True,
+            expires_at=tracker._grace_period_until.isoformat() if tracker._grace_period_until else None,
+            remaining_seconds=tracker.get_grace_period_remaining()
+        )
+
+    return GracePeriodResponse(
+        active=False,
+        expires_at=None,
+        remaining_seconds=None
+    )
+
+
 # Status endpoint
 @app.get("/api/status", response_model=StatusResponse)
 async def get_status(session: AsyncSession = Depends(get_session)):
@@ -183,17 +233,11 @@ async def get_status(session: AsyncSession = Depends(get_session)):
         "lock_end_time": None
     }
 
-    # Count active rules
+    # Count active blocks
     result = await session.execute(
-        select(func.count(BlockRule.id)).where(BlockRule.enabled == True)
+        select(func.count(Block.id)).where(Block.enabled == True)
     )
-    active_rules = result.scalar() or 0
-
-    # Count active schedules
-    result = await session.execute(
-        select(func.count(Schedule.id)).where(Schedule.enabled == True)
-    )
-    active_schedules = result.scalar() or 0
+    active_blocks = result.scalar() or 0
 
     browser_statuses = tracker.get_all_browser_statuses()
     browsers_detected = len(browser_statuses)
@@ -203,285 +247,161 @@ async def get_status(session: AsyncSession = Depends(get_session)):
         running=True,
         locked=lock_status["locked"],
         lock_end_time=lock_status.get("lock_end_time"),
-        active_rules=active_rules,
-        active_schedules=active_schedules,
+        active_rules=0,  # Legacy field, no longer used
+        active_blocks=active_blocks,
         browsers_detected=browsers_detected,
         browsers_compliant=browsers_compliant
     )
 
 
-# Rules endpoints
-@app.get("/api/rules", response_model=List[RuleResponse])
-async def get_rules(session: AsyncSession = Depends(get_session)):
-    """Get all blocking rules."""
-    result = await session.execute(select(BlockRule))
-    rules = result.scalars().all()
-    return [
-        RuleResponse(
-            id=r.id,
-            rule_type=r.rule_type,
-            target=r.target,
-            enabled=r.enabled,
-            created_at=r.created_at.isoformat() if r.created_at else ""
-        )
-        for r in rules
-    ]
+# Blocks endpoints
+@app.get("/api/blocks", response_model=List[BlockResponse])
+async def get_blocks(session: AsyncSession = Depends(get_session)):
+    """Get all blocks."""
+    result = await session.execute(select(Block))
+    blocks = result.scalars().all()
+
+    return [BlockResponse(**b.to_dict()) for b in blocks]
 
 
-@app.post("/api/rules", response_model=RuleResponse)
-async def create_rule(rule: RuleCreate, session: AsyncSession = Depends(get_session)):
-    """Create a new blocking rule."""
-    await check_lock_mode()
+@app.post("/api/blocks", response_model=BlockResponse)
+async def create_block(block: BlockCreate, session: AsyncSession = Depends(get_session)):
+    """Create a new block."""
+    if block.block_mode not in ('always', 'time_range', 'disabled'):
+        raise HTTPException(status_code=400, detail="Invalid block_mode")
 
-    if rule.rule_type not in ('website', 'application'):
-        raise HTTPException(status_code=400, detail="Invalid rule_type")
+    if block.lock_mode not in ('none', 'time_range', 'locked_until'):
+        raise HTTPException(status_code=400, detail="Invalid lock_mode")
 
-    db_rule = BlockRule(
-        rule_type=rule.rule_type,
-        target=rule.target,
-        enabled=rule.enabled
-    )
-    session.add(db_rule)
-    await session.commit()
-    await session.refresh(db_rule)
-
-    return RuleResponse(
-        id=db_rule.id,
-        rule_type=db_rule.rule_type,
-        target=db_rule.target,
-        enabled=db_rule.enabled,
-        created_at=db_rule.created_at.isoformat() if db_rule.created_at else ""
-    )
-
-
-@app.put("/api/rules/{rule_id}", response_model=RuleResponse)
-async def update_rule(rule_id: int, rule: RuleUpdate, session: AsyncSession = Depends(get_session)):
-    """Update a blocking rule."""
-    await check_lock_mode()
-
-    result = await session.execute(select(BlockRule).where(BlockRule.id == rule_id))
-    db_rule = result.scalar_one_or_none()
-
-    if db_rule is None:
-        raise HTTPException(status_code=404, detail="Rule not found")
-
-    if rule.rule_type is not None:
-        if rule.rule_type not in ('website', 'application'):
-            raise HTTPException(status_code=400, detail="Invalid rule_type")
-        db_rule.rule_type = rule.rule_type
-
-    if rule.target is not None:
-        db_rule.target = rule.target
-
-    if rule.enabled is not None:
-        db_rule.enabled = rule.enabled
-
-    await session.commit()
-    await session.refresh(db_rule)
-
-    return RuleResponse(
-        id=db_rule.id,
-        rule_type=db_rule.rule_type,
-        target=db_rule.target,
-        enabled=db_rule.enabled,
-        created_at=db_rule.created_at.isoformat() if db_rule.created_at else ""
-    )
-
-
-@app.delete("/api/rules/{rule_id}")
-async def delete_rule(rule_id: int, session: AsyncSession = Depends(get_session)):
-    """Delete a blocking rule."""
-    await check_lock_mode()
-
-    result = await session.execute(select(BlockRule).where(BlockRule.id == rule_id))
-    db_rule = result.scalar_one_or_none()
-
-    if db_rule is None:
-        raise HTTPException(status_code=404, detail="Rule not found")
-
-    await session.delete(db_rule)
-    await session.commit()
-
-    return {"status": "deleted"}
-
-
-# Schedules endpoints
-@app.get("/api/schedules", response_model=List[ScheduleResponse])
-async def get_schedules(session: AsyncSession = Depends(get_session)):
-    """Get all schedules."""
-    result = await session.execute(
-        select(Schedule).options(selectinload(Schedule.schedule_rules))
-    )
-    schedules = result.scalars().all()
-
-    return [
-        ScheduleResponse(
-            id=s.id,
-            name=s.name,
-            schedule_type=s.schedule_type,
-            days_of_week=s.days_of_week,
-            start_time=s.start_time,
-            end_time=s.end_time,
-            locked_until=s.locked_until.isoformat() if s.locked_until else None,
-            enabled=s.enabled,
-            created_at=s.created_at.isoformat() if s.created_at else "",
-            rule_ids=[sr.rule_id for sr in s.schedule_rules]
-        )
-        for s in schedules
-    ]
-
-
-@app.post("/api/schedules", response_model=ScheduleResponse)
-async def create_schedule(schedule: ScheduleCreate, session: AsyncSession = Depends(get_session)):
-    """Create a new schedule."""
-    await check_lock_mode()
-
-    if schedule.schedule_type not in ('time_range', 'locked_until'):
-        raise HTTPException(status_code=400, detail="Invalid schedule_type")
-
-    locked_until = None
-    if schedule.locked_until:
+    lock_until = None
+    if block.lock_until:
         try:
-            locked_until = datetime.fromisoformat(schedule.locked_until)
+            lock_until = datetime.fromisoformat(block.lock_until)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid locked_until datetime format")
+            raise HTTPException(status_code=400, detail="Invalid lock_until datetime format")
 
-    db_schedule = Schedule(
-        name=schedule.name,
-        schedule_type=schedule.schedule_type,
-        days_of_week=schedule.days_of_week,
-        start_time=schedule.start_time,
-        end_time=schedule.end_time,
-        locked_until=locked_until,
-        enabled=schedule.enabled
+    db_block = Block(
+        name=block.name,
+        block_mode=block.block_mode,
+        block_days_of_week=block.block_days_of_week,
+        block_start_time=block.block_start_time,
+        block_end_time=block.block_end_time,
+        lock_mode=block.lock_mode,
+        lock_days_of_week=block.lock_days_of_week,
+        lock_start_time=block.lock_start_time,
+        lock_end_time=block.lock_end_time,
+        lock_until=lock_until,
+        websites_blocked=block.websites_blocked,
+        websites_allowed=block.websites_allowed,
+        apps_blocked=block.apps_blocked,
+        apps_allowed=block.apps_allowed,
+        enabled=block.enabled
     )
-    session.add(db_schedule)
-    await session.flush()
-
-    # Add rule associations
-    for rule_id in schedule.rule_ids:
-        # Verify rule exists
-        result = await session.execute(select(BlockRule).where(BlockRule.id == rule_id))
-        if result.scalar_one_or_none() is None:
-            raise HTTPException(status_code=400, detail=f"Rule {rule_id} not found")
-
-        schedule_rule = ScheduleRule(schedule_id=db_schedule.id, rule_id=rule_id)
-        session.add(schedule_rule)
-
+    session.add(db_block)
     await session.commit()
-    await session.refresh(db_schedule)
+    await session.refresh(db_block)
 
-    return ScheduleResponse(
-        id=db_schedule.id,
-        name=db_schedule.name,
-        schedule_type=db_schedule.schedule_type,
-        days_of_week=db_schedule.days_of_week,
-        start_time=db_schedule.start_time,
-        end_time=db_schedule.end_time,
-        locked_until=db_schedule.locked_until.isoformat() if db_schedule.locked_until else None,
-        enabled=db_schedule.enabled,
-        created_at=db_schedule.created_at.isoformat() if db_schedule.created_at else "",
-        rule_ids=schedule.rule_ids
-    )
+    return BlockResponse(**db_block.to_dict())
 
 
-@app.put("/api/schedules/{schedule_id}", response_model=ScheduleResponse)
-async def update_schedule(
-    schedule_id: int,
-    schedule: ScheduleUpdate,
+@app.put("/api/blocks/{block_id}", response_model=BlockResponse)
+async def update_block(
+    block_id: int,
+    block: BlockUpdate,
     session: AsyncSession = Depends(get_session)
 ):
-    """Update a schedule."""
-    await check_lock_mode()
+    """Update a block."""
+    await check_block_lock(block_id)
 
-    result = await session.execute(
-        select(Schedule).where(Schedule.id == schedule_id)
-        .options(selectinload(Schedule.schedule_rules))
-    )
-    db_schedule = result.scalar_one_or_none()
+    result = await session.execute(select(Block).where(Block.id == block_id))
+    db_block = result.scalar_one_or_none()
 
-    if db_schedule is None:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+    if db_block is None:
+        raise HTTPException(status_code=404, detail="Block not found")
 
-    if schedule.name is not None:
-        db_schedule.name = schedule.name
+    if block.name is not None:
+        db_block.name = block.name
 
-    if schedule.schedule_type is not None:
-        if schedule.schedule_type not in ('time_range', 'locked_until'):
-            raise HTTPException(status_code=400, detail="Invalid schedule_type")
-        db_schedule.schedule_type = schedule.schedule_type
+    if block.block_mode is not None:
+        if block.block_mode not in ('always', 'time_range', 'disabled'):
+            raise HTTPException(status_code=400, detail="Invalid block_mode")
+        db_block.block_mode = block.block_mode
 
-    if schedule.days_of_week is not None:
-        db_schedule.days_of_week = schedule.days_of_week
+    if block.block_days_of_week is not None:
+        db_block.block_days_of_week = block.block_days_of_week
 
-    if schedule.start_time is not None:
-        db_schedule.start_time = schedule.start_time
+    if block.block_start_time is not None:
+        db_block.block_start_time = block.block_start_time
 
-    if schedule.end_time is not None:
-        db_schedule.end_time = schedule.end_time
+    if block.block_end_time is not None:
+        db_block.block_end_time = block.block_end_time
 
-    if schedule.locked_until is not None:
+    if block.lock_mode is not None:
+        if block.lock_mode not in ('none', 'time_range', 'locked_until'):
+            raise HTTPException(status_code=400, detail="Invalid lock_mode")
+        db_block.lock_mode = block.lock_mode
+
+    if block.lock_days_of_week is not None:
+        db_block.lock_days_of_week = block.lock_days_of_week
+
+    if block.lock_start_time is not None:
+        db_block.lock_start_time = block.lock_start_time
+
+    if block.lock_end_time is not None:
+        db_block.lock_end_time = block.lock_end_time
+
+    if block.lock_until is not None:
         try:
-            db_schedule.locked_until = datetime.fromisoformat(schedule.locked_until)
+            db_block.lock_until = datetime.fromisoformat(block.lock_until)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid locked_until datetime format")
+            raise HTTPException(status_code=400, detail="Invalid lock_until datetime format")
 
-    if schedule.enabled is not None:
-        db_schedule.enabled = schedule.enabled
+    if block.enabled is not None:
+        db_block.enabled = block.enabled
 
-    if schedule.rule_ids is not None:
-        # Remove existing associations
-        for sr in db_schedule.schedule_rules:
-            await session.delete(sr)
+    if block.websites_blocked is not None:
+        db_block.websites_blocked = block.websites_blocked
 
-        # Add new associations
-        for rule_id in schedule.rule_ids:
-            result = await session.execute(select(BlockRule).where(BlockRule.id == rule_id))
-            if result.scalar_one_or_none() is None:
-                raise HTTPException(status_code=400, detail=f"Rule {rule_id} not found")
+    if block.websites_allowed is not None:
+        db_block.websites_allowed = block.websites_allowed
 
-            schedule_rule = ScheduleRule(schedule_id=db_schedule.id, rule_id=rule_id)
-            session.add(schedule_rule)
+    if block.apps_blocked is not None:
+        db_block.apps_blocked = block.apps_blocked
+
+    if block.apps_allowed is not None:
+        db_block.apps_allowed = block.apps_allowed
 
     await session.commit()
-    await session.refresh(db_schedule)
+    await session.refresh(db_block)
 
-    # Re-fetch to get updated rule_ids
-    result = await session.execute(
-        select(Schedule).where(Schedule.id == schedule_id)
-        .options(selectinload(Schedule.schedule_rules))
-    )
-    db_schedule = result.scalar_one()
-
-    return ScheduleResponse(
-        id=db_schedule.id,
-        name=db_schedule.name,
-        schedule_type=db_schedule.schedule_type,
-        days_of_week=db_schedule.days_of_week,
-        start_time=db_schedule.start_time,
-        end_time=db_schedule.end_time,
-        locked_until=db_schedule.locked_until.isoformat() if db_schedule.locked_until else None,
-        enabled=db_schedule.enabled,
-        created_at=db_schedule.created_at.isoformat() if db_schedule.created_at else "",
-        rule_ids=[sr.rule_id for sr in db_schedule.schedule_rules]
-    )
+    return BlockResponse(**db_block.to_dict())
 
 
-@app.delete("/api/schedules/{schedule_id}")
-async def delete_schedule(schedule_id: int, session: AsyncSession = Depends(get_session)):
-    """Delete a schedule."""
-    await check_lock_mode()
+@app.delete("/api/blocks/{block_id}")
+async def delete_block(block_id: int, session: AsyncSession = Depends(get_session)):
+    """Delete a block."""
+    await check_block_lock(block_id)
 
-    result = await session.execute(select(Schedule).where(Schedule.id == schedule_id))
-    db_schedule = result.scalar_one_or_none()
+    result = await session.execute(select(Block).where(Block.id == block_id))
+    db_block = result.scalar_one_or_none()
 
-    if db_schedule is None:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+    if db_block is None:
+        raise HTTPException(status_code=404, detail="Block not found")
 
-    await session.delete(db_schedule)
+    await session.delete(db_block)
     await session.commit()
 
     return {"status": "deleted"}
+
+
+@app.get("/api/blocks/{block_id}/lock-status")
+async def get_block_lock_status(block_id: int):
+    """Get lock status for a specific block."""
+    lock_manager = get_lock_manager()
+    if lock_manager:
+        is_locked = await lock_manager.is_block_locked(block_id)
+        return {"locked": is_locked}
+    return {"locked": False}
 
 
 # Stats endpoint
@@ -561,3 +481,47 @@ async def get_browsers():
         )
         for s in statuses
     ]
+
+
+# Blocked sites endpoint for browser extension
+@app.get("/api/blocked-sites")
+async def get_blocked_sites():
+    """Get list of currently active blocked website patterns.
+
+    This endpoint is used by the browser extension to get the list
+    of sites to block. Returns patterns from all active blocks.
+    """
+    from scheduler import get_scheduler
+
+    scheduler = get_scheduler()
+    if scheduler is None:
+        return {"blocked": [], "allowed": []}
+
+    active_blocks = await scheduler.get_active_blocks()
+
+    # Collect all blocked and allowed patterns
+    all_blocked = []
+    all_allowed = []
+
+    for block in active_blocks:
+        # Parse websites from text fields
+        if block.websites_blocked:
+            blocked_list = [
+                line.strip()
+                for line in block.websites_blocked.split('\n')
+                if line.strip()
+            ]
+            all_blocked.extend(blocked_list)
+
+        if block.websites_allowed:
+            allowed_list = [
+                line.strip()
+                for line in block.websites_allowed.split('\n')
+                if line.strip()
+            ]
+            all_allowed.extend(allowed_list)
+
+    return {
+        "blocked": all_blocked,
+        "allowed": all_allowed
+    }

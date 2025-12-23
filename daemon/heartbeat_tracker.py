@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, Set, Optional
 import logging
+import sys
+import os
+
+# Add daemon directory to Python path for absolute imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import get_config
 
@@ -24,11 +29,47 @@ class HeartbeatTracker:
     def __init__(self):
         # {pid: BrowserHeartbeat}
         self.active_browsers: Dict[int, BrowserHeartbeat] = {}
+        # Grace period for adding extensions
+        self._grace_period_until: Optional[datetime] = None
 
     @property
     def heartbeat_timeout(self) -> int:
         """Get heartbeat timeout from config."""
         return get_config().monitoring.heartbeat_timeout_seconds
+
+    def start_grace_period(self, duration_seconds: int = 30) -> datetime:
+        """Start a grace period during which browser compliance isn't enforced.
+
+        Args:
+            duration_seconds: Duration of the grace period in seconds
+
+        Returns:
+            datetime: When the grace period will end
+        """
+        self._grace_period_until = datetime.now() + timedelta(seconds=duration_seconds)
+        logger.info(f"Grace period started, expires at {self._grace_period_until}")
+        return self._grace_period_until
+
+    def is_grace_period_active(self) -> bool:
+        """Check if currently in a grace period.
+
+        Returns:
+            bool: True if grace period is active
+        """
+        if self._grace_period_until is None:
+            return False
+        return datetime.now() < self._grace_period_until
+
+    def get_grace_period_remaining(self) -> Optional[int]:
+        """Get remaining seconds in the grace period.
+
+        Returns:
+            int or None: Seconds remaining, or None if no active grace period
+        """
+        if not self.is_grace_period_active():
+            return None
+        remaining = (self._grace_period_until - datetime.now()).total_seconds()
+        return max(0, int(remaining))
 
     def register_heartbeat(self, pid: int, browser: str, incognito: bool) -> None:
         """Register a heartbeat from a browser extension.
@@ -80,6 +121,11 @@ class HeartbeatTracker:
         Returns:
             Set of PIDs for browsers that haven't sent heartbeats within the timeout.
         """
+        # During grace period, all browsers are considered compliant
+        if self.is_grace_period_active():
+            logger.debug("Grace period active - all browsers considered compliant")
+            return set()
+
         compliant = self.get_compliant_browsers()
         return all_browser_pids - compliant
 

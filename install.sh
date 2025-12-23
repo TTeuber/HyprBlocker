@@ -31,6 +31,20 @@ echo "Installing native messaging host..."
 cp "$SCRIPT_DIR/extension/native-host/host.py" "$DATA_DIR/native-host/"
 chmod +x "$DATA_DIR/native-host/host.py"
 
+# Install daemon dependencies
+echo "Installing daemon dependencies..."
+cd "$SCRIPT_DIR/daemon"
+uv sync
+DAEMON_PYTHON="$SCRIPT_DIR/daemon/.venv/bin/python"
+cd "$SCRIPT_DIR"
+
+# Install desktop-app dependencies
+echo "Installing desktop-app dependencies..."
+cd "$SCRIPT_DIR/desktop-app"
+uv sync
+DESKTOP_PYTHON="$SCRIPT_DIR/desktop-app/.venv/bin/python"
+cd "$SCRIPT_DIR"
+
 # Update native messaging manifests with correct paths
 NATIVE_HOST_PATH="$DATA_DIR/native-host/host.py"
 
@@ -84,7 +98,7 @@ StartLimitIntervalSec=0
 Type=simple
 Environment="PYTHONUNBUFFERED=1"
 WorkingDirectory=$CONFIG_DIR
-ExecStart=$SCRIPT_DIR/.venv/bin/python $SCRIPT_DIR/daemon/main.py
+ExecStart=$DAEMON_PYTHON $SCRIPT_DIR/daemon/main.py
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -126,7 +140,7 @@ echo "     - Select $DATA_DIR/extension/"
 echo "     - Enable in incognito mode in extension settings"
 echo ""
 echo "3. Launch the desktop app:"
-echo "   cd $SCRIPT_DIR && uv run python desktop-app/main.py"
+echo "   $DESKTOP_PYTHON $SCRIPT_DIR/desktop-app/main.py"
 echo ""
 echo "4. Check daemon status:"
 echo "   systemctl --user status website-blocker"

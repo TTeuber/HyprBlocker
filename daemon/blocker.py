@@ -2,89 +2,115 @@
 
 import fnmatch
 import logging
+import sys
+import os
 from typing import List, Optional
 
+# Add daemon directory to Python path for absolute imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from scheduler import get_scheduler
-from database import BlockRule
 
 logger = logging.getLogger(__name__)
+
+
+def parse_rules_from_text(text: Optional[str]) -> List[str]:
+    """Parse newline-separated rules from text field."""
+    if not text:
+        return []
+    return [line.strip() for line in text.split('\n') if line.strip()]
 
 
 class SiteBlocker:
     """Handles website blocking logic and pattern matching."""
 
     @staticmethod
-    def matches_pattern(hostname: str, pattern: str) -> bool:
-        """Check if a hostname matches a blocking pattern.
+    def url_matches_pattern(url: str, pattern: str) -> bool:
+        """Check if URL matches blocking pattern.
 
         Supports:
-        - Exact match: 'reddit.com' matches 'reddit.com'
-        - Wildcard subdomain: '*.example.com' matches 'www.example.com', 'api.example.com'
-        - Subdomain match: 'example.com' matches 'www.example.com'
+        - Domain matching: reddit.com matches www.reddit.com and reddit.com/anything
+        - Path-specific: youtube.com/shorts only matches that specific path
+        - Wildcard subdomains: *.reddit.com matches all subdomains
 
         Args:
-            hostname: The hostname to check
+            url: The URL to check (can include path)
             pattern: The blocking pattern
 
         Returns:
-            bool: True if the hostname matches the pattern
+            bool: True if URL matches the pattern
         """
-        hostname = hostname.lower().strip()
+        # Remove protocol if present
+        url = url.split('://')[-1] if '://' in url else url
+        pattern = pattern.split('://')[-1] if '://' in pattern else pattern
+
+        url = url.lower().strip()
         pattern = pattern.lower().strip()
 
-        # Remove any protocol prefix from pattern if present
-        if pattern.startswith("http://"):
-            pattern = pattern[7:]
-        elif pattern.startswith("https://"):
-            pattern = pattern[8:]
+        # Handle wildcard subdomains
+        if pattern.startswith('*.'):
+            base_domain = pattern[2:]
+            url_domain = url.split('/')[0]
+            return url_domain == base_domain or url_domain.endswith('.' + base_domain)
 
-        # Remove trailing slash
-        pattern = pattern.rstrip("/")
+        # Check if pattern includes path
+        if '/' in pattern:
+            # Path-specific matching - URL must match exactly or be a subpath
+            return url.startswith(pattern)
+        else:
+            # Domain-only pattern - match domain and all subpaths
+            url_domain = url.split('/')[0]
+            return url_domain == pattern or url.startswith(pattern + '/')
 
-        # Remove path if present (we only match hostname)
-        if "/" in pattern:
-            pattern = pattern.split("/")[0]
+    def should_block_url(self, url: str, blocked: List[str], allowed: List[str]) -> bool:
+        """Check if URL should be blocked.
 
-        # Exact match
-        if hostname == pattern:
-            return True
+        Allow list takes precedence over block list.
 
-        # Wildcard subdomain (*.example.com)
-        if pattern.startswith("*."):
-            domain = pattern[2:]
-            return hostname == domain or hostname.endswith("." + domain)
+        Args:
+            url: The URL to check
+            blocked: List of blocked patterns
+            allowed: List of allowed patterns
 
-        # Subdomain match (example.com matches www.example.com)
-        if hostname.endswith("." + pattern):
-            return True
+        Returns:
+            bool: True if URL should be blocked
+        """
+        # Check if explicitly allowed
+        for allow_pattern in allowed:
+            if self.url_matches_pattern(url, allow_pattern):
+                logger.debug(f"URL {url} explicitly allowed by pattern {allow_pattern}")
+                return False  # Allowed, don't block
 
-        # Glob pattern matching for more complex patterns
-        if "*" in pattern or "?" in pattern:
-            return fnmatch.fnmatch(hostname, pattern)
+        # Check if blocked
+        for block_pattern in blocked:
+            if self.url_matches_pattern(url, block_pattern):
+                logger.debug(f"URL {url} blocked by pattern {block_pattern}")
+                return True  # Blocked
 
-        return False
+        return False  # Not in any list, don't block
 
-    async def is_site_blocked(self, hostname: str) -> Optional[BlockRule]:
+    async def is_site_blocked(self, url: str) -> bool:
         """Check if a site is blocked.
 
         Args:
-            hostname: The hostname to check
+            url: The URL to check (hostname or full URL)
 
         Returns:
-            BlockRule if blocked, None otherwise
+            bool: True if blocked, False otherwise
         """
         scheduler = get_scheduler()
         if scheduler is None:
-            return None
+            return False
 
-        active_rules = await scheduler.get_active_website_rules()
+        active_blocks = await scheduler.get_active_blocks()
+        all_blocked = []
+        all_allowed = []
 
-        for rule in active_rules:
-            if self.matches_pattern(hostname, rule.target):
-                logger.debug(f"Site {hostname} blocked by rule {rule.id}: {rule.target}")
-                return rule
+        for block in active_blocks:
+            all_blocked.extend(parse_rules_from_text(block.websites_blocked))
+            all_allowed.extend(parse_rules_from_text(block.websites_allowed))
 
-        return None
+        return self.should_block_url(url, all_blocked, all_allowed)
 
     async def get_blocked_sites(self) -> List[str]:
         """Get list of all currently blocked site patterns.
@@ -96,8 +122,13 @@ class SiteBlocker:
         if scheduler is None:
             return []
 
-        active_rules = await scheduler.get_active_website_rules()
-        return [rule.target for rule in active_rules]
+        active_blocks = await scheduler.get_active_blocks()
+        all_blocked = []
+
+        for block in active_blocks:
+            all_blocked.extend(parse_rules_from_text(block.websites_blocked))
+
+        return all_blocked
 
 
 class AppBlocker:
@@ -131,27 +162,55 @@ class AppBlocker:
 
         return False
 
-    async def is_app_blocked(self, app_class: str) -> Optional[BlockRule]:
+    def should_block_app(self, app_class: str, blocked: List[str], allowed: List[str]) -> bool:
+        """Check if app should be blocked.
+
+        Allow list takes precedence over block list.
+
+        Args:
+            app_class: The application window class
+            blocked: List of blocked patterns
+            allowed: List of allowed patterns
+
+        Returns:
+            bool: True if app should be blocked
+        """
+        # Check if explicitly allowed
+        for allow_pattern in allowed:
+            if self.matches_pattern(app_class, allow_pattern):
+                logger.debug(f"App {app_class} explicitly allowed by pattern {allow_pattern}")
+                return False  # Allowed, don't block
+
+        # Check if blocked
+        for block_pattern in blocked:
+            if self.matches_pattern(app_class, block_pattern):
+                logger.debug(f"App {app_class} blocked by pattern {block_pattern}")
+                return True  # Blocked
+
+        return False  # Not in any list, don't block
+
+    async def is_app_blocked(self, app_class: str) -> bool:
         """Check if an application is blocked.
 
         Args:
             app_class: The application window class
 
         Returns:
-            BlockRule if blocked, None otherwise
+            bool: True if blocked, False otherwise
         """
         scheduler = get_scheduler()
         if scheduler is None:
-            return None
+            return False
 
-        active_rules = await scheduler.get_active_app_rules()
+        active_blocks = await scheduler.get_active_blocks()
+        all_blocked = []
+        all_allowed = []
 
-        for rule in active_rules:
-            if self.matches_pattern(app_class, rule.target):
-                logger.debug(f"App {app_class} blocked by rule {rule.id}: {rule.target}")
-                return rule
+        for block in active_blocks:
+            all_blocked.extend(parse_rules_from_text(block.apps_blocked))
+            all_allowed.extend(parse_rules_from_text(block.apps_allowed))
 
-        return None
+        return self.should_block_app(app_class, all_blocked, all_allowed)
 
     async def get_blocked_apps(self) -> List[str]:
         """Get list of all currently blocked application patterns.
@@ -163,8 +222,13 @@ class AppBlocker:
         if scheduler is None:
             return []
 
-        active_rules = await scheduler.get_active_app_rules()
-        return [rule.target for rule in active_rules]
+        active_blocks = await scheduler.get_active_blocks()
+        all_blocked = []
+
+        for block in active_blocks:
+            all_blocked.extend(parse_rules_from_text(block.apps_blocked))
+
+        return all_blocked
 
 
 # Global blocker instances

@@ -3,6 +3,7 @@
 
 import json
 import os
+import subprocess
 import sys
 
 import webview
@@ -25,106 +26,77 @@ class API:
                 'locked': status.locked,
                 'lock_end_time': status.lock_end_time,
                 'active_rules': status.active_rules,
-                'active_schedules': status.active_schedules,
+                'active_blocks': status.active_blocks,
                 'browsers_detected': status.browsers_detected,
                 'browsers_compliant': status.browsers_compliant
             }
         return {'running': False, 'error': 'Daemon not reachable'}
 
-    def get_rules(self) -> list:
-        """Get all blocking rules."""
-        rules = self.client.get_rules()
+    def get_blocks(self) -> list:
+        """Get all blocks."""
+        blocks = self.client.get_blocks()
         return [{
-            'id': r.id,
-            'rule_type': r.rule_type,
-            'target': r.target,
-            'enabled': r.enabled,
-            'created_at': r.created_at
-        } for r in rules]
+            'id': b.id,
+            'name': b.name,
+            'block_mode': b.block_mode,
+            'block_days_of_week': b.block_days_of_week,
+            'block_start_time': b.block_start_time,
+            'block_end_time': b.block_end_time,
+            'lock_mode': b.lock_mode,
+            'lock_days_of_week': b.lock_days_of_week,
+            'lock_start_time': b.lock_start_time,
+            'lock_end_time': b.lock_end_time,
+            'lock_until': b.lock_until,
+            'enabled': b.enabled,
+            'created_at': b.created_at,
+            'websites_blocked': b.websites_blocked,
+            'websites_allowed': b.websites_allowed,
+            'apps_blocked': b.apps_blocked,
+            'apps_allowed': b.apps_allowed
+        } for b in blocks]
 
-    def add_rule(self, rule_type: str, target: str, enabled: bool = True) -> dict:
-        """Add a new blocking rule."""
-        try:
-            rule = self.client.add_rule(rule_type, target, enabled)
-            if rule:
-                return {
-                    'success': True,
-                    'rule': {
-                        'id': rule.id,
-                        'rule_type': rule.rule_type,
-                        'target': rule.target,
-                        'enabled': rule.enabled
-                    }
-                }
-            return {'success': False, 'error': 'Failed to add rule'}
-        except PermissionError as e:
-            return {'success': False, 'error': str(e), 'locked': True}
-
-    def update_rule(self, rule_id: int, updates: dict) -> dict:
-        """Update a blocking rule."""
-        try:
-            rule = self.client.update_rule(rule_id, **updates)
-            if rule:
-                return {'success': True}
-            return {'success': False, 'error': 'Failed to update rule'}
-        except PermissionError as e:
-            return {'success': False, 'error': str(e), 'locked': True}
-
-    def delete_rule(self, rule_id: int) -> dict:
-        """Delete a blocking rule."""
-        try:
-            if self.client.delete_rule(rule_id):
-                return {'success': True}
-            return {'success': False, 'error': 'Failed to delete rule'}
-        except PermissionError as e:
-            return {'success': False, 'error': str(e), 'locked': True}
-
-    def get_schedules(self) -> list:
-        """Get all schedules."""
-        schedules = self.client.get_schedules()
-        return [{
-            'id': s.id,
-            'name': s.name,
-            'schedule_type': s.schedule_type,
-            'days_of_week': s.days_of_week,
-            'start_time': s.start_time,
-            'end_time': s.end_time,
-            'locked_until': s.locked_until,
-            'enabled': s.enabled,
-            'created_at': s.created_at,
-            'rule_ids': s.rule_ids
-        } for s in schedules]
-
-    def add_schedule(self, data: dict) -> dict:
-        """Add a new schedule."""
+    def add_block(self, data: dict) -> dict:
+        """Add a new block."""
         try:
             name = data.pop('name')
-            schedule_type = data.pop('schedule_type')
-            schedule = self.client.add_schedule(name, schedule_type, **data)
-            if schedule:
-                return {'success': True, 'schedule': {'id': schedule.id, 'name': schedule.name}}
-            return {'success': False, 'error': 'Failed to add schedule'}
+            block_mode = data.pop('block_mode', 'always')
+            lock_mode = data.pop('lock_mode', 'none')
+            block = self.client.add_block(name, block_mode, lock_mode, **data)
+            if block:
+                return {'success': True, 'block': {'id': block.id, 'name': block.name}}
+            return {'success': False, 'error': 'Failed to add block'}
         except PermissionError as e:
             return {'success': False, 'error': str(e), 'locked': True}
 
-    def update_schedule(self, schedule_id: int, updates: dict) -> dict:
-        """Update a schedule."""
+    def update_block(self, block_id: int, updates: dict) -> dict:
+        """Update a block."""
         try:
-            schedule = self.client.update_schedule(schedule_id, **updates)
-            if schedule:
+            block = self.client.update_block(block_id, **updates)
+            if block:
                 return {'success': True}
-            return {'success': False, 'error': 'Failed to update schedule'}
+            return {'success': False, 'error': 'Failed to update block'}
         except PermissionError as e:
             return {'success': False, 'error': str(e), 'locked': True}
 
-    def delete_schedule(self, schedule_id: int) -> dict:
-        """Delete a schedule."""
+    def delete_block(self, block_id: int) -> dict:
+        """Delete a block."""
         try:
-            if self.client.delete_schedule(schedule_id):
+            if self.client.delete_block(block_id):
                 return {'success': True}
-            return {'success': False, 'error': 'Failed to delete schedule'}
+            return {'success': False, 'error': 'Failed to delete block'}
         except PermissionError as e:
             return {'success': False, 'error': str(e), 'locked': True}
+
+    def get_block_lock_status(self, block_id: int) -> dict:
+        """Check if a specific block is currently locked."""
+        try:
+            response = self.client.get_block_lock_status(block_id)
+            return {'locked': response.get('locked', False)}
+        except PermissionError:
+            return {'locked': True}
+        except Exception as e:
+            print(f"Error checking block lock status: {e}")
+            return {'locked': False}
 
     def get_stats(self) -> dict:
         """Get blocking statistics."""
@@ -154,6 +126,56 @@ class API:
     def is_daemon_running(self) -> bool:
         """Check if daemon is running."""
         return self.client.is_daemon_running()
+
+    def start_extension_grace_period(self) -> dict:
+        """Start grace period and open browser extensions page.
+
+        Returns:
+            dict with status and grace period info
+        """
+        # Start grace period in daemon
+        grace_status = self.client.start_grace_period()
+
+        if grace_status and grace_status.active:
+            # Open Chrome extensions page
+            try:
+                subprocess.Popen(['xdg-open', 'chrome://extensions/'])
+            except Exception:
+                # Fallback: try direct Chrome command
+                try:
+                    subprocess.Popen(['google-chrome', 'chrome://extensions/'])
+                except Exception:
+                    try:
+                        subprocess.Popen(['chromium', 'chrome://extensions/'])
+                    except Exception:
+                        pass
+
+            return {
+                'success': True,
+                'active': True,
+                'expires_at': grace_status.expires_at,
+                'remaining_seconds': grace_status.remaining_seconds
+            }
+
+        return {
+            'success': False,
+            'error': 'Failed to start grace period'
+        }
+
+    def get_grace_period_status(self) -> dict:
+        """Get current grace period status.
+
+        Returns:
+            dict with grace period info
+        """
+        status = self.client.get_grace_period_status()
+        if status:
+            return {
+                'active': status.active,
+                'expires_at': status.expires_at,
+                'remaining_seconds': status.remaining_seconds
+            }
+        return {'active': False}
 
 
 def get_web_dir() -> str:

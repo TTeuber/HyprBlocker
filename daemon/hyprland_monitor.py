@@ -4,11 +4,17 @@ import asyncio
 import json
 import logging
 import subprocess
+import sys
+import os
 from typing import Dict, List, Optional, Set
+
+# Add daemon directory to Python path for absolute imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import get_config
 from heartbeat_tracker import get_heartbeat_tracker
 from scheduler import get_scheduler
+from blocker import get_app_blocker
 from database import BlockEvent
 
 logger = logging.getLogger(__name__)
@@ -158,28 +164,23 @@ class HyprlandMonitor:
         Returns:
             Number of windows closed
         """
-        scheduler = get_scheduler()
-        if scheduler is None:
-            return 0
-
-        active_app_rules = await scheduler.get_active_app_rules()
-        if not active_app_rules:
+        app_blocker = get_app_blocker()
+        if app_blocker is None:
             return 0
 
         windows = await self.get_all_windows()
         closed_count = 0
 
         for window in windows:
-            for rule in active_app_rules:
-                if self._matches_app_rule(window, rule.target):
-                    if await self.close_window(window, f"blocked by rule {rule.id}"):
-                        await self.log_block_event(
-                            window.get("class", "unknown"),
-                            "app_closed",
-                            rule.id
-                        )
-                        closed_count += 1
-                    break
+            window_class = window.get("class", "")
+            if window_class and await app_blocker.is_app_blocked(window_class):
+                if await self.close_window(window, f"blocked app: {window_class}"):
+                    await self.log_block_event(
+                        window_class,
+                        "app_closed",
+                        None  # No specific rule ID anymore
+                    )
+                    closed_count += 1
 
         return closed_count
 
@@ -189,6 +190,11 @@ class HyprlandMonitor:
         Returns:
             Number of browsers closed
         """
+        # Skip enforcement if dev mode is enabled
+        if get_config().security.dev_mode:
+            logger.debug("Dev mode enabled - skipping browser enforcement")
+            return 0
+
         tracker = get_heartbeat_tracker()
         windows = await self.get_all_windows()
 

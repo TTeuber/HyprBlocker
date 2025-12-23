@@ -762,3 +762,58 @@ body {
 .hidden {
     display: none !important;
 }
+
+/* Grace Period Banner */
+.grace-period-banner {
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.grace-period-banner .grace-icon {
+    font-size: 18px;
+}
+
+.grace-period-banner .grace-text {
+    flex: 1;
+}
+
+.grace-period-banner .grace-timer {
+    font-weight: bold;
+    color: #d97706;
+}
+
+/* Header Buttons */
+.header-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+/* Page Description */
+.page-description {
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
+/* Form Section */
+.form-section {
+    background: var(--bg-main);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 20px;
+}
+
+.form-section h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.form-section > .form-hint {
+    margin-bottom: 16px;
+}

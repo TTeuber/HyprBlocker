@@ -5,6 +5,11 @@ from typing import List, Optional
 import json
 import logging
 import subprocess
+import sys
+import os
+
+# Add daemon directory to Python path for absolute imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from time_verifier import get_time_verifier
 
@@ -12,15 +17,20 @@ logger = logging.getLogger(__name__)
 
 
 class LockManager:
-    """Manages lock mode during scheduled blocking periods."""
+    """Manages lock mode during locked blocking periods.
 
-    def __init__(self, get_schedules_func):
+    Lock mode is separate from blocking:
+    - block_mode determines when content is blocked
+    - lock_mode determines when configuration is read-only
+    """
+
+    def __init__(self, get_blocks_func):
         """Initialize the lock manager.
 
         Args:
-            get_schedules_func: Async function that returns list of Schedule objects
+            get_blocks_func: Async function that returns list of Block objects
         """
-        self._get_schedules = get_schedules_func
+        self._get_blocks = get_blocks_func
         self._time_verifier = get_time_verifier()
         self._was_locked = False
         self._lock_end_time: Optional[datetime] = None
@@ -30,35 +40,67 @@ class LockManager:
         parts = time_str.split(':')
         return dt_time(int(parts[0]), int(parts[1]))
 
-    def _is_schedule_active(self, schedule, now: datetime) -> bool:
-        """Check if a schedule is currently active.
+    def _parse_days_of_week(self, days_of_week: str) -> List[int]:
+        """Parse days of week string into list of integers.
+
+        Handles both JSON arrays like "[0,1,2]" and comma-separated strings like "0,1,2".
 
         Args:
-            schedule: A Schedule object
+            days_of_week: Days string in either format
+
+        Returns:
+            List of day integers (0=Monday)
+        """
+        if not days_of_week:
+            return []
+
+        # Try JSON first
+        try:
+            days = json.loads(days_of_week)
+            if isinstance(days, list):
+                return [int(d) for d in days]
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Try comma-separated
+        try:
+            return [int(d.strip()) for d in days_of_week.split(',') if d.strip()]
+        except ValueError:
+            logger.error(f"Invalid days_of_week format: {days_of_week}")
+            return []
+
+    def _is_block_locked(self, block, now: datetime) -> bool:
+        """Check if a block's configuration is currently locked.
+
+        Args:
+            block: A Block object
             now: Current datetime
 
         Returns:
-            bool: True if the schedule is active now
+            bool: True if the block's config is locked
         """
-        if not schedule.enabled:
+        if not block.enabled:
             return False
 
-        if schedule.schedule_type == 'locked_until':
-            if schedule.locked_until:
-                return now < schedule.locked_until
+        if block.lock_mode == 'none':
             return False
 
-        elif schedule.schedule_type == 'time_range':
+        if block.lock_mode == 'locked_until':
+            if block.lock_until:
+                return now < block.lock_until
+            return False
+
+        elif block.lock_mode == 'time_range':
             # Check day of week (0=Monday in Python)
-            if schedule.days_of_week:
-                days = json.loads(schedule.days_of_week)
-                if now.weekday() not in days:
+            if block.lock_days_of_week:
+                days = self._parse_days_of_week(block.lock_days_of_week)
+                if days and now.weekday() not in days:
                     return False
 
             # Check time range
-            if schedule.start_time and schedule.end_time:
-                start = self._parse_time(schedule.start_time)
-                end = self._parse_time(schedule.end_time)
+            if block.lock_start_time and block.lock_end_time:
+                start = self._parse_time(block.lock_start_time)
+                end = self._parse_time(block.lock_end_time)
                 current_time = now.time()
 
                 # Handle overnight schedules (e.g., 22:00 - 06:00)
@@ -69,22 +111,22 @@ class LockManager:
 
         return False
 
-    def _get_next_unlock_time(self, schedule, now: datetime) -> Optional[datetime]:
-        """Get when the current lock period will end for a schedule.
+    def _get_next_unlock_time(self, block, now: datetime) -> Optional[datetime]:
+        """Get when the current lock period will end for a block.
 
         Args:
-            schedule: A Schedule object
+            block: A Block object
             now: Current datetime
 
         Returns:
             datetime or None: When the lock will end
         """
-        if schedule.schedule_type == 'locked_until':
-            return schedule.locked_until
+        if block.lock_mode == 'locked_until':
+            return block.lock_until
 
-        elif schedule.schedule_type == 'time_range':
-            if schedule.end_time:
-                end = self._parse_time(schedule.end_time)
+        elif block.lock_mode == 'time_range':
+            if block.lock_end_time:
+                end = self._parse_time(block.lock_end_time)
                 end_datetime = datetime.combine(now.date(), end)
 
                 # If end time is before now (overnight schedule), it's tomorrow
@@ -102,12 +144,12 @@ class LockManager:
             bool: True if locked, False otherwise
         """
         now = self._time_verifier.get_verified_time()
-        schedules = await self._get_schedules()
+        blocks = await self._get_blocks()
 
-        for schedule in schedules:
-            if self._is_schedule_active(schedule, now):
+        for block in blocks:
+            if self._is_block_locked(block, now):
                 # Update lock end time
-                unlock_time = self._get_next_unlock_time(schedule, now)
+                unlock_time = self._get_next_unlock_time(block, now)
                 if unlock_time:
                     if self._lock_end_time is None or unlock_time > self._lock_end_time:
                         self._lock_end_time = unlock_time
@@ -117,31 +159,72 @@ class LockManager:
         self._lock_end_time = None
         return False
 
+    async def is_block_locked(self, block_id: int) -> bool:
+        """Check if a specific block is currently locked.
+
+        Args:
+            block_id: The block ID to check
+
+        Returns:
+            bool: True if this specific block is locked
+        """
+        now = self._time_verifier.get_verified_time()
+        blocks = await self._get_blocks()
+
+        for block in blocks:
+            if block.id == block_id:
+                return self._is_block_locked(block, now)
+
+        return False
+
+    async def get_locked_blocks_for_rule(self, rule_id: int) -> List[int]:
+        """Get list of locked block IDs that contain a specific rule.
+
+        Args:
+            rule_id: The rule ID to check
+
+        Returns:
+            List of locked block IDs containing this rule
+        """
+        now = self._time_verifier.get_verified_time()
+        blocks = await self._get_blocks()
+        locked_block_ids = []
+
+        for block in blocks:
+            if self._is_block_locked(block, now):
+                # Check if this block contains the rule
+                for block_rule in block.block_rules:
+                    if block_rule.rule_id == rule_id:
+                        locked_block_ids.append(block.id)
+                        break
+
+        return locked_block_ids
+
     async def get_lock_status(self) -> dict:
         """Get detailed lock status.
 
         Returns:
-            dict with locked state, end time, and active schedules
+            dict with locked state, end time, and active blocks
         """
         now = self._time_verifier.get_verified_time()
-        schedules = await self._get_schedules()
-        active_schedules = []
+        blocks = await self._get_blocks()
+        locked_blocks = []
         earliest_end = None
 
-        for schedule in schedules:
-            if self._is_schedule_active(schedule, now):
-                active_schedules.append(schedule.name)
-                unlock_time = self._get_next_unlock_time(schedule, now)
+        for block in blocks:
+            if self._is_block_locked(block, now):
+                locked_blocks.append(block.name)
+                unlock_time = self._get_next_unlock_time(block, now)
                 if unlock_time:
                     if earliest_end is None or unlock_time < earliest_end:
                         earliest_end = unlock_time
 
-        is_locked = len(active_schedules) > 0
+        is_locked = len(locked_blocks) > 0
 
         return {
             "locked": is_locked,
             "lock_end_time": earliest_end.isoformat() if earliest_end else None,
-            "active_schedules": active_schedules,
+            "locked_blocks": locked_blocks,
             "remaining_seconds": int((earliest_end - now).total_seconds()) if earliest_end else None
         }
 
@@ -154,7 +237,7 @@ class LockManager:
         if entering_lock:
             # Verify time with NTP before entering lock
             if not self._time_verifier.verify_at_lock_transitions():
-                logger.warning("Time verification failed when entering lock - blocking anyway (fail-safe)")
+                logger.warning("Time verification failed when entering lock - locking anyway (fail-safe)")
 
             self._show_notification(
                 "Website Blocker",
@@ -207,10 +290,10 @@ class LockManager:
 _lock_manager: Optional[LockManager] = None
 
 
-def init_lock_manager(get_schedules_func) -> LockManager:
+def init_lock_manager(get_blocks_func) -> LockManager:
     """Initialize and get the global lock manager instance."""
     global _lock_manager
-    _lock_manager = LockManager(get_schedules_func)
+    _lock_manager = LockManager(get_blocks_func)
     return _lock_manager
 
 

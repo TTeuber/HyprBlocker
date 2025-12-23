@@ -18,13 +18,9 @@
                     <span class="nav-icon">&#9632;</span>
                     Dashboard
                 </li>
-                <li class="nav-item" data-page="rules">
+                <li class="nav-item" data-page="blocks">
                     <span class="nav-icon">&#9632;</span>
-                    Block Rules
-                </li>
-                <li class="nav-item" data-page="schedules">
-                    <span class="nav-icon">&#9632;</span>
-                    Schedules
+                    Blocks
                 </li>
                 <li class="nav-item" data-page="stats">
                     <span class="nav-icon">&#9632;</span>
@@ -90,66 +86,32 @@
                             <p class="empty-message">No browsers detected</p>
                         </div>
                     </div>
-                    <div class="card quick-add-card">
-                        <h3>Quick Add Rule</h3>
-                        <form id="quick-add-form" class="quick-add-form">
-                            <select id="quick-add-type">
-                                <option value="website">Website</option>
-                                <option value="application">Application</option>
-                            </select>
-                            <input type="text" id="quick-add-target" placeholder="e.g., reddit.com or steam">
-                            <button type="submit" class="btn btn-primary">Add Rule</button>
-                        </form>
-                    </div>
                 </div>
             </div>
 
-            <!-- Rules Page -->
-            <div class="page" id="page-rules">
+            <!-- Blocks Page -->
+            <div class="page" id="page-blocks">
                 <div class="page-header">
-                    <h2>Block Rules</h2>
-                    <button class="btn btn-primary" id="add-rule-btn">Add Rule</button>
+                    <h2>Blocks</h2>
+                    <button class="btn btn-primary" id="add-block-btn">Add Block</button>
                 </div>
+                <p class="page-description">Blocks group rules together and define when they're active and when configuration is locked.</p>
                 <div class="table-container">
-                    <table class="data-table" id="rules-table">
-                        <thead>
-                            <tr>
-                                <th>Type</th>
-                                <th>Target</th>
-                                <th>Status</th>
-                                <th>Created</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="rules-tbody">
-                        </tbody>
-                    </table>
-                    <p class="empty-message hidden" id="rules-empty">No rules configured. Add a rule to get started.</p>
-                </div>
-            </div>
-
-            <!-- Schedules Page -->
-            <div class="page" id="page-schedules">
-                <div class="page-header">
-                    <h2>Schedules</h2>
-                    <button class="btn btn-primary" id="add-schedule-btn">Add Schedule</button>
-                </div>
-                <div class="table-container">
-                    <table class="data-table" id="schedules-table">
+                    <table class="data-table" id="blocks-table">
                         <thead>
                             <tr>
                                 <th>Name</th>
-                                <th>Type</th>
-                                <th>Details</th>
+                                <th>Block Mode</th>
+                                <th>Lock Mode</th>
                                 <th>Rules</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody id="schedules-tbody">
+                        <tbody id="blocks-tbody">
                         </tbody>
                     </table>
-                    <p class="empty-message hidden" id="schedules-empty">No schedules configured. Add a schedule to automate blocking.</p>
+                    <p class="empty-message hidden" id="blocks-empty">No blocks configured. Add a block to organize your rules.</p>
                 </div>
             </div>
 
@@ -185,8 +147,19 @@
             <div class="page" id="page-browsers">
                 <div class="page-header">
                     <h2>Browser Status</h2>
-                    <button class="btn btn-secondary" id="refresh-browsers-btn">Refresh</button>
+                    <div class="header-buttons">
+                        <button class="btn btn-primary no-lock" id="add-extension-btn">Add Extension</button>
+                        <button class="btn btn-secondary" id="refresh-browsers-btn">Refresh</button>
+                    </div>
                 </div>
+
+                <!-- Grace Period Banner -->
+                <div class="grace-period-banner hidden" id="grace-period-banner">
+                    <span class="grace-icon">&#9200;</span>
+                    <span class="grace-text">Grace period active - browser enforcement paused</span>
+                    <span class="grace-timer" id="grace-timer">30s</span>
+                </div>
+
                 <div class="browsers-grid" id="browsers-grid">
                     <p class="empty-message">No browsers detected. Start a browser with the extension installed.</p>
                 </div>
@@ -194,6 +167,7 @@
                     <h3>Extension Setup</h3>
                     <p>The browser extension is required for website blocking to work. Install it in each browser you use.</p>
                     <ol class="setup-steps">
+                        <li>Click "Add Extension" to start a grace period</li>
                         <li>Open your browser's extension settings</li>
                         <li>Enable "Developer mode"</li>
                         <li>Load the extension from: <code>~/.local/share/website-blocker/extension</code></li>
@@ -235,117 +209,153 @@
         </main>
     </div>
 
-    <!-- Add Rule Modal -->
-    <div class="modal hidden" id="add-rule-modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Add Block Rule</h3>
-                <button class="modal-close" data-modal="add-rule-modal">&times;</button>
-            </div>
-            <form id="add-rule-form">
-                <div class="form-group">
-                    <label for="rule-type">Type</label>
-                    <select id="rule-type" required>
-                        <option value="website">Website</option>
-                        <option value="application">Application</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="rule-target">Target</label>
-                    <input type="text" id="rule-target" placeholder="e.g., reddit.com or *.youtube.com" required>
-                    <small class="form-hint">For websites, use domain names. Use * for wildcards.</small>
-                </div>
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="rule-enabled" checked>
-                        Enabled
-                    </label>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-modal="add-rule-modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Add Rule</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Add Schedule Modal -->
-    <div class="modal hidden" id="add-schedule-modal">
+    <!-- Add Block Modal -->
+    <div class="modal hidden" id="add-block-modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
-                <h3>Add Schedule</h3>
-                <button class="modal-close" data-modal="add-schedule-modal">&times;</button>
+                <h3>Add Block</h3>
+                <button class="modal-close" data-modal="add-block-modal">&times;</button>
             </div>
-            <form id="add-schedule-form">
+            <form id="add-block-form">
                 <div class="form-group">
-                    <label for="schedule-name">Name</label>
-                    <input type="text" id="schedule-name" placeholder="e.g., Work Hours" required>
-                </div>
-                <div class="form-group">
-                    <label for="schedule-type">Type</label>
-                    <select id="schedule-type" required>
-                        <option value="time_range">Time Range (Recurring)</option>
-                        <option value="locked_until">Lock Until (One-time)</option>
-                    </select>
+                    <label for="block-name">Name</label>
+                    <input type="text" id="block-name" placeholder="e.g., Work Focus" required>
                 </div>
 
-                <!-- Time Range Fields -->
-                <div id="time-range-fields">
+                <!-- Block Mode Section -->
+                <div class="form-section">
+                    <h4>Block Schedule</h4>
+                    <small class="form-hint">When should content be blocked?</small>
+
                     <div class="form-group">
-                        <label>Days</label>
-                        <div class="day-checkboxes">
-                            <label><input type="checkbox" name="days" value="0"> Mon</label>
-                            <label><input type="checkbox" name="days" value="1"> Tue</label>
-                            <label><input type="checkbox" name="days" value="2"> Wed</label>
-                            <label><input type="checkbox" name="days" value="3"> Thu</label>
-                            <label><input type="checkbox" name="days" value="4"> Fri</label>
-                            <label><input type="checkbox" name="days" value="5"> Sat</label>
-                            <label><input type="checkbox" name="days" value="6"> Sun</label>
-                        </div>
+                        <label for="block-mode">Block Mode</label>
+                        <select id="block-mode" required>
+                            <option value="always">Always Block</option>
+                            <option value="time_range">Block During Time Range</option>
+                            <option value="disabled">Disabled (Don't Block)</option>
+                        </select>
                     </div>
-                    <div class="form-row">
+
+                    <!-- Block Time Range Fields -->
+                    <div id="block-time-fields" class="hidden">
                         <div class="form-group">
-                            <label for="schedule-start">Start Time</label>
-                            <input type="time" id="schedule-start" value="09:00">
+                            <label>Block Days</label>
+                            <div class="day-checkboxes">
+                                <label><input type="checkbox" name="block-days" value="0"> Mon</label>
+                                <label><input type="checkbox" name="block-days" value="1"> Tue</label>
+                                <label><input type="checkbox" name="block-days" value="2"> Wed</label>
+                                <label><input type="checkbox" name="block-days" value="3"> Thu</label>
+                                <label><input type="checkbox" name="block-days" value="4"> Fri</label>
+                                <label><input type="checkbox" name="block-days" value="5"> Sat</label>
+                                <label><input type="checkbox" name="block-days" value="6"> Sun</label>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="schedule-end">End Time</label>
-                            <input type="time" id="schedule-end" value="17:00">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="block-start">Start Time</label>
+                                <input type="time" id="block-start" value="09:00">
+                            </div>
+                            <div class="form-group">
+                                <label for="block-end">End Time</label>
+                                <input type="time" id="block-end" value="17:00">
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Locked Until Fields -->
-                <div id="locked-until-fields" class="hidden">
-                    <div class="form-row">
+                <!-- Lock Mode Section -->
+                <div class="form-section">
+                    <h4>Lock Schedule</h4>
+                    <small class="form-hint">When should configuration be locked (read-only)?</small>
+
+                    <div class="form-group">
+                        <label for="lock-mode">Lock Mode</label>
+                        <select id="lock-mode">
+                            <option value="none">No Lock</option>
+                            <option value="time_range">Lock During Time Range</option>
+                            <option value="locked_until">Lock Until Date/Time</option>
+                        </select>
+                    </div>
+
+                    <!-- Lock Time Range Fields -->
+                    <div id="lock-time-fields" class="hidden">
                         <div class="form-group">
-                            <label for="schedule-date">Date</label>
-                            <input type="date" id="schedule-date">
+                            <label>Lock Days</label>
+                            <div class="day-checkboxes">
+                                <label><input type="checkbox" name="lock-days" value="0"> Mon</label>
+                                <label><input type="checkbox" name="lock-days" value="1"> Tue</label>
+                                <label><input type="checkbox" name="lock-days" value="2"> Wed</label>
+                                <label><input type="checkbox" name="lock-days" value="3"> Thu</label>
+                                <label><input type="checkbox" name="lock-days" value="4"> Fri</label>
+                                <label><input type="checkbox" name="lock-days" value="5"> Sat</label>
+                                <label><input type="checkbox" name="lock-days" value="6"> Sun</label>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="schedule-time">Time</label>
-                            <input type="time" id="schedule-time" value="17:00">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="lock-start">Start Time</label>
+                                <input type="time" id="lock-start" value="09:00">
+                            </div>
+                            <div class="form-group">
+                                <label for="lock-end">End Time</label>
+                                <input type="time" id="lock-end" value="17:00">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Lock Until Fields -->
+                    <div id="lock-until-fields" class="hidden">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="lock-date">Date</label>
+                                <input type="date" id="lock-date">
+                            </div>
+                            <div class="form-group">
+                                <label for="lock-time">Time</label>
+                                <input type="time" id="lock-time" value="17:00">
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Associated Rules</label>
-                    <div id="schedule-rules-list" class="rules-checklist">
-                        <p class="empty-message">No rules available. Create rules first.</p>
+                <!-- Rules Section -->
+                <div class="form-section">
+                    <h4>Blocked Content</h4>
+                    <small class="form-hint">Enter one item per line</small>
+
+                    <div class="form-group">
+                        <label for="websites-blocked">Blocked Websites (one per line)</label>
+                        <textarea id="websites-blocked" rows="5" placeholder="reddit.com&#10;youtube.com/shorts&#10;twitter.com"></textarea>
+                        <small class="form-hint">Supports paths: youtube.com/shorts blocks only YouTube Shorts</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="websites-allowed">Allowed Websites (exceptions to blocked)</label>
+                        <textarea id="websites-allowed" rows="3" placeholder="youtube.com/educational&#10;reddit.com/r/programming"></textarea>
+                        <small class="form-hint">Allow list overrides block list</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="apps-blocked">Blocked Applications (one per line)</label>
+                        <textarea id="apps-blocked" rows="5" placeholder="steam&#10;discord"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="apps-allowed">Allowed Applications (exceptions)</label>
+                        <textarea id="apps-allowed" rows="3"></textarea>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" id="schedule-enabled" checked>
+                        <input type="checkbox" id="block-enabled" checked>
                         Enabled
                     </label>
                 </div>
 
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-modal="add-schedule-modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Add Schedule</button>
+                    <button type="button" class="btn btn-secondary" data-modal="add-block-modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Block</button>
                 </div>
             </form>
         </div>

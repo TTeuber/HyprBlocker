@@ -9,6 +9,9 @@ import sys
 from contextlib import asynccontextmanager
 from typing import List
 
+# Add daemon directory to Python path for absolute imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
@@ -16,7 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from api import app, set_session_factory
 from config import get_config, get_config_path
-from database import init_database, create_session_factory, Schedule
+from database import init_database, create_session_factory, Block
 from heartbeat_tracker import get_heartbeat_tracker
 from hyprland_monitor import init_hyprland_monitor, get_hyprland_monitor
 from lock_manager import init_lock_manager, get_lock_manager
@@ -55,12 +58,10 @@ _shutdown_event = asyncio.Event()
 _is_locked_cache: bool = False  # Cached lock state for signal handler
 
 
-async def get_all_schedules() -> List[Schedule]:
-    """Get all schedules from the database."""
+async def get_all_blocks() -> List[Block]:
+    """Get all blocks from the database."""
     async with _session_factory() as session:
-        result = await session.execute(
-            select(Schedule).options(selectinload(Schedule.schedule_rules))
-        )
+        result = await session.execute(select(Block))
         return list(result.scalars().all())
 
 
@@ -136,7 +137,7 @@ async def lifespan(app):
 
     # Initialize components
     init_scheduler(_session_factory)
-    init_lock_manager(get_all_schedules)
+    init_lock_manager(get_all_blocks)
     init_hyprland_monitor(_session_factory)
     logger.info("Components initialized")
 
