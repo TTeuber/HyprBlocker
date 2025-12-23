@@ -69,6 +69,13 @@ class GracePeriodStatus:
     remaining_seconds: Optional[int]
 
 
+@dataclass
+class DevModeStatus:
+    """Represents dev mode status."""
+    enabled: bool
+    source: str  # 'environment', 'config', or 'default'
+
+
 class DaemonClient:
     """Client for the Website Blocker daemon API."""
 
@@ -277,3 +284,40 @@ class DaemonClient:
         except requests.RequestException:
             pass
         return None
+
+    def get_dev_mode_status(self) -> Optional[DevModeStatus]:
+        """Get dev mode status.
+
+        Returns:
+            DevModeStatus or None if failed
+        """
+        try:
+            response = self._request('GET', '/api/settings/dev-mode')
+            if response.status_code == 200:
+                return DevModeStatus(**response.json())
+        except requests.RequestException:
+            pass
+        return None
+
+    def update_dev_mode(self, enabled: bool) -> dict:
+        """Update dev mode setting.
+
+        Args:
+            enabled: Whether to enable dev mode
+
+        Returns:
+            Dict with success status
+
+        Raises:
+            PermissionError: If dev mode is set via environment variable
+        """
+        try:
+            response = self._request('PUT', '/api/settings/dev-mode', json={'enabled': enabled})
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 403:
+                raise PermissionError("Dev mode is controlled by environment variable")
+            else:
+                raise Exception(f"Failed to update dev mode: {response.text}")
+        except requests.RequestException as e:
+            raise Exception(f"Request failed: {str(e)}")

@@ -9,6 +9,8 @@ import type {
   BrowserStatus,
   GracePeriodResponse,
   GracePeriodStatus,
+  DevModeStatus,
+  DevModeUpdateResponse,
 } from '../types';
 
 // Wait for pywebview to be ready
@@ -77,6 +79,16 @@ export const api = {
   async getGracePeriodStatus(): Promise<GracePeriodStatus> {
     await waitForPywebview();
     return window.pywebview.api.get_grace_period_status();
+  },
+
+  async getDevModeStatus(): Promise<DevModeStatus> {
+    await waitForPywebview();
+    return window.pywebview.api.get_dev_mode_status();
+  },
+
+  async updateDevMode(enabled: boolean): Promise<DevModeUpdateResponse> {
+    await waitForPywebview();
+    return window.pywebview.api.update_dev_mode(enabled);
   },
 };
 

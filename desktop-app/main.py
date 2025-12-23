@@ -179,6 +179,44 @@ class API:
             }
         return {'active': False}
 
+    def get_dev_mode_status(self) -> dict:
+        """Get dev mode status.
+
+        Returns:
+            dict with dev mode status
+        """
+        status = self.client.get_dev_mode_status()
+        if status:
+            return {
+                'enabled': status.enabled,
+                'source': status.source
+            }
+        return {'enabled': False, 'source': 'unknown', 'error': 'Failed to get dev mode status'}
+
+    def update_dev_mode(self, enabled: bool) -> dict:
+        """Update dev mode setting.
+
+        Args:
+            enabled: Whether to enable dev mode
+
+        Returns:
+            dict with success status
+        """
+        try:
+            result = self.client.update_dev_mode(enabled)
+            return {'success': True, 'enabled': result.get('enabled', enabled)}
+        except PermissionError as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'env_override': True
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
 
 def get_web_dir() -> str:
     """Get the path to the web directory."""

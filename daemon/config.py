@@ -90,10 +90,11 @@ def load_config() -> Config:
 
     # Check for dev mode environment variable (overrides config file)
     dev_mode_env = os.getenv('BLOCKER_DEV_MODE', 'false').lower()
-    config.security.dev_mode = dev_mode_env in ('true', '1', 'yes')
-
-    if config.security.dev_mode:
-        logger.warning("🚨 DEV MODE ENABLED - Browser enforcement disabled!")
+    if dev_mode_env in ('true', '1', 'yes'):
+        config.security.dev_mode = True
+        logger.warning("🚨 DEV MODE ENABLED via environment variable - Browser enforcement disabled!")
+    elif config.security.dev_mode:
+        logger.warning("🚨 DEV MODE ENABLED via config file - Browser enforcement disabled!")
 
     return config
 
@@ -116,7 +117,8 @@ def save_config(config: Config) -> None:
         "security": {
             "ntp_servers": config.security.ntp_servers,
             "max_time_diff_seconds": config.security.max_time_diff_seconds,
-            "verify_time_on_transitions": config.security.verify_time_on_transitions
+            "verify_time_on_transitions": config.security.verify_time_on_transitions,
+            "dev_mode": config.security.dev_mode
         },
         "browsers": config.browsers
     }

@@ -101,6 +101,20 @@ export interface LockStatusResponse {
   locked: boolean;
 }
 
+// Dev mode settings
+export interface DevModeStatus {
+  enabled: boolean;
+  source: 'environment' | 'config' | 'default' | 'unknown';
+  error?: string;
+}
+
+export interface DevModeUpdateResponse {
+  success: boolean;
+  enabled?: boolean;
+  error?: string;
+  env_override?: boolean;
+}
+
 // Navigation pages
 export type Page = 'dashboard' | 'blocks' | 'stats' | 'browsers' | 'settings';
 
@@ -129,6 +143,8 @@ declare global {
         is_daemon_running(): Promise<boolean>;
         start_extension_grace_period(): Promise<GracePeriodResponse>;
         get_grace_period_status(): Promise<GracePeriodStatus>;
+        get_dev_mode_status(): Promise<DevModeStatus>;
+        update_dev_mode(enabled: boolean): Promise<DevModeUpdateResponse>;
       };
     };
   }

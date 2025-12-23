@@ -1,5 +1,6 @@
 """FastAPI REST API for the website blocker daemon."""
 
+import logging
 import sys
 import os
 
@@ -125,6 +126,15 @@ class GracePeriodResponse(BaseModel):
     active: bool
     expires_at: Optional[str]
     remaining_seconds: Optional[int]
+
+
+class DevModeStatusResponse(BaseModel):
+    enabled: bool
+    source: str  # 'environment', 'config', or 'default'
+
+
+class DevModeUpdateRequest(BaseModel):
+    enabled: bool
 
 
 # Create FastAPI app
@@ -529,3 +539,61 @@ async def get_blocked_sites():
         "blocked": all_blocked,
         "allowed": all_allowed
     }
+
+
+# Settings endpoints
+@app.get("/api/settings/dev-mode", response_model=DevModeStatusResponse)
+async def get_dev_mode_status():
+    """Get current dev mode status."""
+    from config import get_config
+    import os
+
+    config = get_config()
+
+    # Check if set via environment (takes precedence)
+    dev_mode_env = os.getenv('BLOCKER_DEV_MODE', 'false').lower()
+    if dev_mode_env in ('true', '1', 'yes'):
+        return DevModeStatusResponse(
+            enabled=True,
+            source='environment'
+        )
+
+    return DevModeStatusResponse(
+        enabled=config.security.dev_mode,
+        source='config' if config.security.dev_mode else 'default'
+    )
+
+
+@app.put("/api/settings/dev-mode")
+async def update_dev_mode_status(request: DevModeUpdateRequest):
+    """Update dev mode setting.
+
+    Note: This only works if dev mode is not set via environment variable.
+    """
+    from config import get_config, save_config, reload_config
+    import os
+
+    logger = logging.getLogger(__name__)
+
+    # Check if environment variable is set
+    dev_mode_env = os.getenv('BLOCKER_DEV_MODE', 'false').lower()
+    if dev_mode_env in ('true', '1', 'yes'):
+        raise HTTPException(
+            status_code=403,
+            detail="Dev mode is set via environment variable and cannot be changed through the UI"
+        )
+
+    # Update config
+    config = get_config()
+    config.security.dev_mode = request.enabled
+    save_config(config)
+
+    # Reload config to apply changes immediately
+    reload_config()
+
+    if request.enabled:
+        logger.warning("🚨 DEV MODE ENABLED via UI - Browser enforcement disabled!")
+    else:
+        logger.info("✅ DEV MODE DISABLED via UI - Browser enforcement active")
+
+    return {"success": True, "enabled": request.enabled}

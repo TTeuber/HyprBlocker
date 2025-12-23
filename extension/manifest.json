@@ -3,6 +3,11 @@
   "name": "Website Blocker",
   "version": "1.0.0",
   "description": "Blocks websites during focus periods - works with the Website Blocker daemon",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "website-blocker@websiteblocker.local"
+    }
+  },
   "permissions": [
     "storage",
     "nativeMessaging",

@@ -57,22 +57,29 @@ async function getBrowserPID() {
         port.onMessage.addListener((message) => {
             if (message.pid) {
                 browserPID = message.pid;
-                console.log('Using real browser PID from native host:', browserPID);
+                console.log('✅ Using real browser PID from native host:', browserPID);
+                console.log('Extension ID:', chrome.runtime.id);
             }
             if (message.error) {
-                console.error('Native host error:', message.error);
+                console.error('❌ Native host error:', message.error);
+                console.warn('⚠️ Using fallback PID:', browserPID);
             }
         });
 
         port.onDisconnect.addListener(() => {
             if (chrome.runtime.lastError) {
-                console.log('Native messaging not available (this is OK, using fallback PID)');
+                console.error('❌ Native messaging disconnected:', chrome.runtime.lastError.message);
+                console.warn('⚠️ Using fallback PID:', browserPID, '- Browser may be killed!');
+                console.info('ℹ️ Extension ID:', chrome.runtime.id);
+                console.info('ℹ️ Check native messaging manifest for ID mismatch');
             }
         });
 
         port.postMessage({ action: 'get_pid' });
     } catch (error) {
-        console.log('Native messaging not configured (this is OK, using fallback PID)');
+        console.error('❌ Native messaging error:', error);
+        console.warn('⚠️ Using fallback PID:', browserPID, '- Browser may be killed!');
+        console.info('ℹ️ Extension ID:', chrome.runtime.id);
     }
 }
 
