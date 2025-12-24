@@ -22,6 +22,8 @@ class BrowserHeartbeat:
     last_seen: datetime
     incognito_last_seen: Optional[datetime] = None
     incognito_enabled: bool = True
+    window_count: Optional[int] = None  # Windows visible to extension
+    window_mismatch_count: int = 0  # Consecutive mismatches with Hyprland count
 
 
 class HeartbeatTracker:
@@ -72,7 +74,14 @@ class HeartbeatTracker:
         remaining = (self._grace_period_until - datetime.now()).total_seconds()
         return max(0, int(remaining))
 
-    def register_heartbeat(self, pid: int, browser: str, incognito: bool, incognito_enabled: bool = True) -> None:
+    def register_heartbeat(
+        self,
+        pid: int,
+        browser: str,
+        incognito: bool,
+        incognito_enabled: bool = True,
+        window_count: Optional[int] = None
+    ) -> None:
         """Register a heartbeat from a browser extension.
 
         Args:
@@ -80,6 +89,7 @@ class HeartbeatTracker:
             browser: The browser name (e.g., 'firefox', 'chrome')
             incognito: Whether this is from an incognito/private window
             incognito_enabled: Whether extension has incognito permission
+            window_count: Number of windows visible to the extension (None if count failed)
         """
         now = datetime.now()
 
@@ -87,18 +97,26 @@ class HeartbeatTracker:
             # Update existing heartbeat
             self.active_browsers[pid].last_seen = now
             self.active_browsers[pid].incognito_enabled = incognito_enabled
+            self.active_browsers[pid].window_count = window_count
             if incognito:
                 self.active_browsers[pid].incognito_last_seen = now
-            logger.debug(f"Updated heartbeat for {browser} (PID: {pid}, incognito: {incognito}, incognito_enabled: {incognito_enabled})")
+            logger.debug(
+                f"Updated heartbeat for {browser} (PID: {pid}, incognito: {incognito}, "
+                f"incognito_enabled: {incognito_enabled}, window_count: {window_count})"
+            )
         else:
             # New browser registration
             self.active_browsers[pid] = BrowserHeartbeat(
                 browser=browser,
                 last_seen=now,
                 incognito_last_seen=now if incognito else None,
-                incognito_enabled=incognito_enabled
+                incognito_enabled=incognito_enabled,
+                window_count=window_count
             )
-            logger.info(f"Registered new browser: {browser} (PID: {pid}, incognito_enabled: {incognito_enabled})")
+            logger.info(
+                f"Registered new browser: {browser} (PID: {pid}, "
+                f"incognito_enabled: {incognito_enabled}, window_count: {window_count})"
+            )
 
     def get_compliant_browsers(self) -> Set[int]:
         """Get PIDs of browsers with recent heartbeats.
@@ -132,6 +150,42 @@ class HeartbeatTracker:
 
         compliant = self.get_compliant_browsers()
         return all_browser_pids - compliant
+
+    def get_extension_window_count(self, pid: int) -> Optional[int]:
+        """Get the window count reported by extension for a PID.
+
+        Args:
+            pid: The browser process ID
+
+        Returns:
+            Number of windows extension sees, or None if unknown/not tracked
+        """
+        if pid not in self.active_browsers:
+            return None
+        return self.active_browsers[pid].window_count
+
+    def increment_window_mismatch(self, pid: int) -> int:
+        """Increment the window mismatch counter for a browser.
+
+        Args:
+            pid: The browser process ID
+
+        Returns:
+            The new mismatch count, or 0 if browser not tracked
+        """
+        if pid not in self.active_browsers:
+            return 0
+        self.active_browsers[pid].window_mismatch_count += 1
+        return self.active_browsers[pid].window_mismatch_count
+
+    def reset_window_mismatch(self, pid: int) -> None:
+        """Reset the window mismatch counter for a browser.
+
+        Args:
+            pid: The browser process ID
+        """
+        if pid in self.active_browsers:
+            self.active_browsers[pid].window_mismatch_count = 0
 
     def get_browsers_missing_incognito_heartbeat(self) -> Set[int]:
         """Find browsers that have incognito windows but no recent incognito heartbeat.

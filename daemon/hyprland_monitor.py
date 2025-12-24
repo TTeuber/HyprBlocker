@@ -102,6 +102,85 @@ class HyprlandMonitor:
 
         return False
 
+    def count_browser_windows_by_pid(self, windows: List[Dict], pid: int) -> int:
+        """Count browser windows for a specific PID.
+
+        Args:
+            windows: List of window dictionaries from hyprctl
+            pid: Process ID to count windows for
+
+        Returns:
+            Number of browser windows with this PID
+        """
+        return sum(1 for w in windows
+                   if w.get("pid") == pid and self._is_browser_window(w))
+
+    def get_browsers_with_unmonitored_windows(
+        self,
+        windows: List[Dict],
+        browser_windows: Dict[int, Dict]
+    ) -> Set[int]:
+        """Find browsers that have more windows than the extension can see.
+
+        This detects guest profiles, other profiles without the extension, etc.
+
+        Args:
+            windows: All windows from hyprctl
+            browser_windows: Dict mapping PID to a representative browser window
+
+        Returns:
+            Set of PIDs for browsers with unmonitored windows
+        """
+        tracker = get_heartbeat_tracker()
+        unmonitored = set()
+
+        # During grace period, skip this check
+        if tracker.is_grace_period_active():
+            return set()
+
+        for pid in browser_windows.keys():
+            # Get window count from extension
+            extension_count = tracker.get_extension_window_count(pid)
+
+            # If extension couldn't count windows or hasn't sent count yet, skip
+            # This provides graceful degradation for old extensions
+            if extension_count is None:
+                logger.debug(f"PID {pid}: Extension window count unavailable, skipping check")
+                continue
+
+            # Count windows Hyprland sees for this PID
+            hyprland_count = self.count_browser_windows_by_pid(windows, pid)
+
+            logger.debug(
+                f"PID {pid}: Extension sees {extension_count} windows, "
+                f"Hyprland sees {hyprland_count} windows"
+            )
+
+            # If Hyprland sees more windows than extension, there are unmonitored windows
+            if hyprland_count > extension_count:
+                # Increment mismatch counter
+                mismatch_count = tracker.increment_window_mismatch(pid)
+
+                # Require 2+ consecutive mismatches to avoid timing issues
+                # (e.g., window opened between heartbeats)
+                if mismatch_count >= 2:
+                    logger.warning(
+                        f"Browser PID {pid} has unmonitored windows! "
+                        f"Extension sees {extension_count}, Hyprland sees {hyprland_count} "
+                        f"(mismatch count: {mismatch_count})"
+                    )
+                    unmonitored.add(pid)
+                else:
+                    logger.debug(
+                        f"PID {pid}: Window count mismatch ({extension_count} vs {hyprland_count}), "
+                        f"waiting for confirmation (count: {mismatch_count}/2)"
+                    )
+            else:
+                # Counts match, reset mismatch counter
+                tracker.reset_window_mismatch(pid)
+
+        return unmonitored
+
     async def close_window(self, window: Dict, reason: str = "blocked") -> bool:
         """Close a window by its address.
 
@@ -185,7 +264,7 @@ class HyprlandMonitor:
         return closed_count
 
     async def check_and_close_non_compliant_browsers(self) -> int:
-        """Check for and close browsers without extension heartbeats.
+        """Check for and close browsers without extension heartbeats or with unmonitored windows.
 
         Returns:
             Number of browsers closed
@@ -209,18 +288,29 @@ class HyprlandMonitor:
         if not browser_windows:
             return 0
 
-        # Get non-compliant browsers
+        # Get non-compliant browsers (no heartbeat)
         all_browser_pids = set(browser_windows.keys())
         non_compliant = tracker.get_non_compliant_browsers(all_browser_pids)
 
+        # Get browsers with unmonitored windows (guest profiles, etc.)
+        unmonitored = self.get_browsers_with_unmonitored_windows(windows, browser_windows)
+
+        # Combine both sets
+        browsers_to_close = non_compliant | unmonitored
+
         closed_count = 0
-        for pid in non_compliant:
+        for pid in browsers_to_close:
             window = browser_windows.get(pid)
             if window:
+                if pid in non_compliant:
+                    reason = "no extension heartbeat"
+                else:
+                    reason = "unmonitored windows detected (guest profile?)"
+
                 logger.warning(
-                    f"Browser {window.get('class')} (PID: {pid}) has no extension heartbeat"
+                    f"Browser {window.get('class')} (PID: {pid}) - {reason}"
                 )
-                if await self.close_window(window, "no extension heartbeat"):
+                if await self.close_window(window, reason):
                     await self.log_block_event(
                         f"Browser: {window.get('class')} (PID: {pid})",
                         "browser_killed"

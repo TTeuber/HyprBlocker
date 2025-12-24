@@ -100,6 +100,30 @@ function hashCode(str) {
 }
 
 /**
+ * Count visible browser windows that the extension can see
+ * Used to detect unmonitored profiles (guest profiles, etc.)
+ */
+async function getVisibleWindowCount() {
+    try {
+        // Only count 'normal' and large 'popup' windows
+        // Excludes: devtools, panel, and tiny extension popups
+        const windows = await chrome.windows.getAll({ windowTypes: ['normal', 'popup'] });
+        let count = 0;
+        for (const window of windows) {
+            // Normal windows always count
+            // Popup windows only count if they're large enough to be a real browser window
+            if (window.type === 'normal' || (window.type === 'popup' && window.width > 400)) {
+                count++;
+            }
+        }
+        return count;
+    } catch (error) {
+        console.error('Failed to count windows:', error);
+        return null; // Return null to indicate failure (not 0)
+    }
+}
+
+/**
  * Check if any window is in incognito mode
  */
 async function isIncognitoWindow() {
@@ -163,6 +187,7 @@ async function sendHeartbeat() {
     try {
         const isIncognito = await isIncognitoWindow();
         const incognitoAllowed = await isAllowedIncognitoAccess();
+        const windowCount = await getVisibleWindowCount();
 
         const response = await fetch(`${DAEMON_URL}/api/heartbeat`, {
             method: 'POST',
@@ -172,6 +197,7 @@ async function sendHeartbeat() {
                 browser: getBrowserName(),
                 incognito: isIncognito,
                 incognito_enabled: incognitoAllowed,
+                window_count: windowCount,
                 timestamp: Date.now()
             })
         });
