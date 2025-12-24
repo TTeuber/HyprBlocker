@@ -197,6 +197,7 @@ async function sendHeartbeat() {
                 browser: getBrowserName(),
                 incognito: isIncognito,
                 incognito_enabled: incognitoAllowed,
+                extension_id: chrome.runtime.id,
                 window_count: windowCount,
                 timestamp: Date.now()
             })

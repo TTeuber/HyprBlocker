@@ -27,7 +27,8 @@ class HeartbeatRequest(BaseModel):
     browser: str
     incognito: bool = False
     incognito_enabled: bool = True
-    window_count: Optional[int] = None  # Windows visible to extension (None if count failed)
+    extension_id: str  # Unique per browser profile
+    window_count: int  # Windows visible to this extension
     timestamp: Optional[int] = None
 
 
@@ -198,6 +199,7 @@ async def receive_heartbeat(heartbeat: HeartbeatRequest):
         browser=heartbeat.browser,
         incognito=heartbeat.incognito,
         incognito_enabled=heartbeat.incognito_enabled,
+        extension_id=heartbeat.extension_id,
         window_count=heartbeat.window_count
     )
     return HeartbeatResponse(status="ok")

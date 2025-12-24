@@ -3,6 +3,7 @@
 ## Architecture Overview
 
 Three main components:
+
 1. **Daemon** (daemon/) - FastAPI server, port 8765, systemd service
 2. **Desktop App** (desktop-app/) - PyWebView GUI with React frontend
 3. **Browser Extension** (extension/) - WebExtensions API (Manifest v3)
@@ -18,6 +19,7 @@ Desktop App + Browser Extension
 ## Key Files & Modules
 
 ### Daemon (daemon/)
+
 - `main.py` - Entry point, systemd integration, signal handling
 - `api.py` - 26 REST API endpoints
 - `blocker.py` - Pattern matching for websites/apps
@@ -31,11 +33,13 @@ Desktop App + Browser Extension
 - `migrations.py` - Database migration logic
 
 ### Desktop App (desktop-app/)
+
 - `main.py` - PyWebView window + JS bridge
 - `api_client.py` - HTTP client for daemon API
 - `frontend/` - React + TypeScript (Vite build)
 
 ### Browser Extension (extension/)
+
 - `background.js` - Service worker (heartbeat, blocking)
 - `blocked.html` - Blocked page display
 - `popup/` - Extension popup UI
@@ -46,6 +50,7 @@ Desktop App + Browser Extension
 Location: `~/.config/website-blocker/blocker.db`
 
 ### blocks table
+
 ```sql
 id INTEGER PRIMARY KEY
 name TEXT NOT NULL
@@ -72,6 +77,7 @@ apps_allowed TEXT
 ```
 
 ### block_events table
+
 ```sql
 id INTEGER PRIMARY KEY
 blocked_target TEXT
@@ -80,6 +86,7 @@ event_type TEXT
 ```
 
 ### heartbeat_logs table
+
 ```sql
 id INTEGER PRIMARY KEY
 browser_pid INTEGER
@@ -91,33 +98,36 @@ timestamp DATETIME
 
 ## Key API Endpoints
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/status` | GET | Daemon status, active blocks, lock state |
-| `/api/blocks` | GET/POST | List/create blocks |
-| `/api/blocks/{id}` | PUT/DELETE | Update/delete block |
-| `/api/blocks/{id}/lock-status` | GET | Check if block is locked |
-| `/api/stats` | GET | Blocking statistics |
-| `/api/browsers` | GET | Browser extension status |
-| `/api/heartbeat` | POST | Browser extension heartbeat |
-| `/api/grace-period` | GET/POST | Grace period for extension setup |
-| `/api/blocked-sites` | GET | Current blocked patterns (for extension) |
-| `/api/settings/dev-mode` | GET/PUT | Dev mode toggle |
+| Endpoint                       | Method     | Purpose                                  |
+| ------------------------------ | ---------- | ---------------------------------------- |
+| `/api/status`                  | GET        | Daemon status, active blocks, lock state |
+| `/api/blocks`                  | GET/POST   | List/create blocks                       |
+| `/api/blocks/{id}`             | PUT/DELETE | Update/delete block                      |
+| `/api/blocks/{id}/lock-status` | GET        | Check if block is locked                 |
+| `/api/stats`                   | GET        | Blocking statistics                      |
+| `/api/browsers`                | GET        | Browser extension status                 |
+| `/api/heartbeat`               | POST       | Browser extension heartbeat              |
+| `/api/grace-period`            | GET/POST   | Grace period for extension setup         |
+| `/api/blocked-sites`           | GET        | Current blocked patterns (for extension) |
+| `/api/settings/dev-mode`       | GET/PUT    | Dev mode toggle                          |
 
 ## Data Model
 
 ### Rules Storage
+
 - **Text-based**: Newline-separated strings in blocks table
 - **Four rule types**: websites_blocked, websites_allowed, apps_blocked, apps_allowed
 - **Allow list precedence**: Allow lists override block lists
 
 ### Website Patterns
+
 - Domain: `youtube.com`
 - Subdomain: `www.youtube.com` (matches when blocking `youtube.com`)
 - Wildcard: `*.reddit.com`
 - Path-specific: `youtube.com/shorts`
 
 ### App Patterns
+
 - Window class matching via Hyprland IPC
 - Partial matching: `steam` matches `steam_app_123456`
 
@@ -169,3 +179,8 @@ timestamp DATETIME
 - **Extension is untrusted**: Browsers killed if extension stops
 - **Fail-safe**: When in doubt, block (not allow)
 - **Self-control focused**: Not designed as parental controls
+
+## Notes from Developer
+
+- This app is in early development, don't worry about backwards compatibility
+- If there are any changes to the structure of this app like adding/removing files or changing the database model, please update CLAUDE.md with those changes

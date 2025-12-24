@@ -139,13 +139,12 @@ class HyprlandMonitor:
             return set()
 
         for pid in browser_windows.keys():
-            # Get window count from extension
-            extension_count = tracker.get_extension_window_count(pid)
+            # Get TOTAL window count from ALL extension instances for this PID
+            extension_count = tracker.get_total_extension_window_count(pid)
 
-            # If extension couldn't count windows or hasn't sent count yet, skip
-            # This provides graceful degradation for old extensions
+            # If no extension instances for this PID, skip
             if extension_count is None:
-                logger.debug(f"PID {pid}: Extension window count unavailable, skipping check")
+                logger.debug(f"PID {pid}: No extension instances tracked, skipping check")
                 continue
 
             # Count windows Hyprland sees for this PID

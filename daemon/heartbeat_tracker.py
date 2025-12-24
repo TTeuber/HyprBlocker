@@ -22,8 +22,15 @@ class BrowserHeartbeat:
     last_seen: datetime
     incognito_last_seen: Optional[datetime] = None
     incognito_enabled: bool = True
-    window_count: Optional[int] = None  # Windows visible to extension
     window_mismatch_count: int = 0  # Consecutive mismatches with Hyprland count
+
+
+@dataclass
+class ExtensionInstance:
+    """Tracks a single extension instance (one per browser profile)."""
+    extension_id: str
+    window_count: int
+    last_seen: datetime
 
 
 class HeartbeatTracker:
@@ -32,6 +39,8 @@ class HeartbeatTracker:
     def __init__(self):
         # {pid: BrowserHeartbeat}
         self.active_browsers: Dict[int, BrowserHeartbeat] = {}
+        # Track extension instances per PID: {pid: {extension_id: ExtensionInstance}}
+        self.extension_instances: Dict[int, Dict[str, ExtensionInstance]] = {}
         # Grace period for adding extensions
         self._grace_period_until: Optional[datetime] = None
 
@@ -80,7 +89,8 @@ class HeartbeatTracker:
         browser: str,
         incognito: bool,
         incognito_enabled: bool = True,
-        window_count: Optional[int] = None
+        extension_id: str = "",
+        window_count: int = 0
     ) -> None:
         """Register a heartbeat from a browser extension.
 
@@ -89,33 +99,38 @@ class HeartbeatTracker:
             browser: The browser name (e.g., 'firefox', 'chrome')
             incognito: Whether this is from an incognito/private window
             incognito_enabled: Whether extension has incognito permission
-            window_count: Number of windows visible to the extension (None if count failed)
+            extension_id: Unique ID for this extension instance (per browser profile)
+            window_count: Number of windows visible to this extension
         """
         now = datetime.now()
 
+        # Track browser-level heartbeat
         if pid in self.active_browsers:
-            # Update existing heartbeat
             self.active_browsers[pid].last_seen = now
             self.active_browsers[pid].incognito_enabled = incognito_enabled
-            self.active_browsers[pid].window_count = window_count
             if incognito:
                 self.active_browsers[pid].incognito_last_seen = now
-            logger.debug(
-                f"Updated heartbeat for {browser} (PID: {pid}, incognito: {incognito}, "
-                f"incognito_enabled: {incognito_enabled}, window_count: {window_count})"
-            )
         else:
-            # New browser registration
             self.active_browsers[pid] = BrowserHeartbeat(
                 browser=browser,
                 last_seen=now,
                 incognito_last_seen=now if incognito else None,
-                incognito_enabled=incognito_enabled,
-                window_count=window_count
+                incognito_enabled=incognito_enabled
             )
-            logger.info(
-                f"Registered new browser: {browser} (PID: {pid}, "
-                f"incognito_enabled: {incognito_enabled}, window_count: {window_count})"
+            logger.info(f"Registered new browser: {browser} (PID: {pid})")
+
+        # Track extension instance (per-profile window count)
+        if extension_id:
+            if pid not in self.extension_instances:
+                self.extension_instances[pid] = {}
+            self.extension_instances[pid][extension_id] = ExtensionInstance(
+                extension_id=extension_id,
+                window_count=window_count,
+                last_seen=now
+            )
+            logger.debug(
+                f"Updated extension instance: {extension_id[:8]}... "
+                f"(PID: {pid}, windows: {window_count})"
             )
 
     def get_compliant_browsers(self) -> Set[int]:
@@ -151,18 +166,29 @@ class HeartbeatTracker:
         compliant = self.get_compliant_browsers()
         return all_browser_pids - compliant
 
-    def get_extension_window_count(self, pid: int) -> Optional[int]:
-        """Get the window count reported by extension for a PID.
+    def get_total_extension_window_count(self, pid: int) -> Optional[int]:
+        """Get the total window count from all extension instances for a PID.
+
+        Sums window counts from all extension instances (profiles) for this browser.
 
         Args:
             pid: The browser process ID
 
         Returns:
-            Number of windows extension sees, or None if unknown/not tracked
+            Total windows across all extensions, or None if no extensions tracked
         """
-        if pid not in self.active_browsers:
+        if pid not in self.extension_instances:
             return None
-        return self.active_browsers[pid].window_count
+
+        now = datetime.now()
+        timeout = timedelta(seconds=self.heartbeat_timeout)
+        total = 0
+
+        for instance in self.extension_instances[pid].values():
+            if now - instance.last_seen <= timeout:
+                total += instance.window_count
+
+        return total if total > 0 else None
 
     def increment_window_mismatch(self, pid: int) -> int:
         """Increment the window mismatch counter for a browser.
@@ -208,10 +234,11 @@ class HeartbeatTracker:
         return missing
 
     def cleanup_old_heartbeats(self) -> None:
-        """Remove heartbeats older than the timeout period."""
+        """Remove heartbeats and extension instances older than the timeout period."""
         now = datetime.now()
         timeout = timedelta(seconds=self.heartbeat_timeout * 2)  # Extra buffer for cleanup
 
+        # Clean up stale browsers
         stale_pids = [
             pid for pid, heartbeat in self.active_browsers.items()
             if now - heartbeat.last_seen > timeout
@@ -220,7 +247,23 @@ class HeartbeatTracker:
         for pid in stale_pids:
             browser = self.active_browsers[pid].browser
             del self.active_browsers[pid]
+            # Also remove extension instances for this PID
+            if pid in self.extension_instances:
+                del self.extension_instances[pid]
             logger.info(f"Removed stale heartbeat for {browser} (PID: {pid})")
+
+        # Clean up stale extension instances (even if browser is still active)
+        for pid in list(self.extension_instances.keys()):
+            stale_extensions = [
+                ext_id for ext_id, instance in self.extension_instances[pid].items()
+                if now - instance.last_seen > timeout
+            ]
+            for ext_id in stale_extensions:
+                del self.extension_instances[pid][ext_id]
+                logger.debug(f"Removed stale extension instance: {ext_id[:8]}... (PID: {pid})")
+            # Remove empty dicts
+            if not self.extension_instances[pid]:
+                del self.extension_instances[pid]
 
     def get_browser_status(self, pid: int) -> Optional[Dict]:
         """Get the status of a specific browser.
