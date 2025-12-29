@@ -235,6 +235,44 @@ class API:
                 'error': str(e)
             }
 
+    def get_safe_search_status(self) -> dict:
+        """Get safe search enforcement status.
+
+        Returns:
+            dict with safe search enforcement status
+        """
+        status = self.client.get_safe_search_status()
+        if status:
+            return {
+                'enabled': status.enabled,
+                'source': status.source
+            }
+        return {'enabled': False, 'source': 'unknown', 'error': 'Failed to get status'}
+
+    def update_safe_search(self, enabled: bool) -> dict:
+        """Update safe search enforcement setting.
+
+        Args:
+            enabled: Whether to enable safe search enforcement
+
+        Returns:
+            dict with success status
+        """
+        try:
+            result = self.client.update_safe_search(enabled)
+            return {'success': True, 'enabled': result.get('enabled', enabled)}
+        except PermissionError as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'settingsLocked': True
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     def get_watchdog_status(self) -> dict:
         """Get watchdog status.
 

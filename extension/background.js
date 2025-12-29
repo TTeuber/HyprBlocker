@@ -9,6 +9,7 @@ const RULES_REFRESH_INTERVAL = 5000; // 5 seconds
 
 let browserPID = null;
 let blocksData = [];  // Array of {id, name, blocked[], allowed[]}
+let safeSearchEnabled = false;  // Safe search enforcement setting
 let heartbeatIntervalId = null;
 let rulesRefreshIntervalId = null;
 
@@ -251,12 +252,15 @@ async function fetchBlockedSites() {
         const data = await response.json();
 
         blocksData = data.blocks || [];
+        safeSearchEnabled = data.safe_search_enabled || false;
 
         console.log('Blocks data updated:', blocksData.length, 'blocks');
+        console.log('Safe search enforcement:', safeSearchEnabled ? 'ENABLED' : 'DISABLED');
 
         // Store in local storage for popup access
         chrome.storage.local.set({
-            blocksData: blocksData
+            blocksData: blocksData,
+            safeSearchEnabled: safeSearchEnabled
         });
 
     } catch (error) {
@@ -485,12 +489,66 @@ function recordBlock(tabId, url) {
 }
 
 /**
+ * Enforce safe search on search engine URLs
+ * Returns {redirect: boolean, newUrl: string} if redirect is needed
+ */
+function enforceSafeSearch(url) {
+    try {
+        const urlObj = new URL(url);
+        const hostname = urlObj.hostname.toLowerCase();
+
+        // Google Safe Search: safe=active
+        if (hostname.includes('google.') && urlObj.pathname.startsWith('/search')) {
+            if (urlObj.searchParams.get('safe') !== 'active') {
+                urlObj.searchParams.set('safe', 'active');
+                return { redirect: true, newUrl: urlObj.toString() };
+            }
+        }
+
+        // Bing Safe Search: adlt=strict
+        if (hostname.includes('bing.com') && urlObj.pathname.startsWith('/search')) {
+            if (urlObj.searchParams.get('adlt') !== 'strict') {
+                urlObj.searchParams.set('adlt', 'strict');
+                return { redirect: true, newUrl: urlObj.toString() };
+            }
+        }
+
+        // DuckDuckGo Safe Search: kp=1
+        if (hostname.includes('duckduckgo.com')) {
+            if (urlObj.searchParams.get('kp') !== '1') {
+                urlObj.searchParams.set('kp', '1');
+                return { redirect: true, newUrl: urlObj.toString() };
+            }
+        }
+
+        return { redirect: false };
+    } catch (error) {
+        console.error('Error enforcing safe search:', error);
+        return { redirect: false };
+    }
+}
+
+/**
  * Handle navigation blocking for any webNavigation event
  */
 async function handleNavigationBlock(details, eventName) {
     // Only handle main frame navigation
     if (details.frameId !== 0) {
         return;
+    }
+
+    // Safe search enforcement (before blocking check)
+    if (safeSearchEnabled) {
+        const safeSearchResult = enforceSafeSearch(details.url);
+        if (safeSearchResult.redirect) {
+            console.log(`🔍 [${eventName}] Enforcing safe search:`, details.url, '→', safeSearchResult.newUrl);
+            try {
+                await chrome.tabs.update(details.tabId, { url: safeSearchResult.newUrl });
+                return;  // Stop here, don't check for blocking
+            } catch (error) {
+                console.error('Failed to enforce safe search:', error);
+            }
+        }
     }
 
     // Check deduplication cache

@@ -12,6 +12,7 @@ A robust website and application blocking system for Arch Linux + Hyprland that 
 - 🔒 **Lock Mode** - Configuration becomes read-only during blocking periods
 - 🐕 **Watchdog System** - Independent processes restart daemon if killed
 - 🔐 **Settings Lock** - Prevent all changes for a duration (with NTP verification)
+- 🔍 **Safe Search Enforcement** - Force strict safe search on Google, Bing, and DuckDuckGo
 - ✅ **Allow Lists** - Block sites with exceptions (e.g., block reddit except r/programming)
 - 🎯 **Path-Specific** - Block specific pages (e.g., youtube.com/shorts only)
 - 🌐 **Browser Extension** - Enforces blocks in Firefox and Chrome
@@ -204,6 +205,22 @@ The "Browsers" page shows:
 **Grace Period:**
 Click "Add Extension" to start a 30-second grace period where browser enforcement is paused, giving you time to install the extension.
 
+### Safe Search Enforcement
+
+The "Settings" page includes an option to enforce safe search on major search engines:
+
+- **Google**: Automatically adds `safe=active` parameter
+- **Bing**: Automatically adds `adlt=strict` parameter
+- **DuckDuckGo**: Automatically adds `kp=1` parameter
+
+When enabled:
+- Search URLs are automatically modified before loading
+- Works seamlessly with website blocking
+- Respects settings lock (cannot be disabled when locked)
+- Default: **Disabled** (opt-in feature)
+
+This feature helps prevent unwanted content in search results without blocking the search engines entirely.
+
 ## Configuration Files
 
 - **Config**: `~/.config/website-blocker/config.json`
@@ -237,8 +254,10 @@ The daemon exposes a REST API at `http://127.0.0.1:8765`:
 - `POST /api/grace-period` - Start grace period
 
 ### Settings
-- `GET /api/settings/dev-mode` - Dev mode status
-- `PUT /api/settings/dev-mode` - Toggle dev mode
+- `GET /api/settings/browser-enforcement` - Browser enforcement status
+- `PUT /api/settings/browser-enforcement` - Toggle browser enforcement
+- `GET /api/settings/safe-search` - Safe search enforcement status
+- `PUT /api/settings/safe-search` - Toggle safe search enforcement
 - `GET /api/settings/watchdog` - Watchdog status
 - `PUT /api/settings/watchdog` - Enable/disable watchdog
 - `GET /api/settings/lock` - Settings lock status
@@ -324,6 +343,7 @@ curl http://127.0.0.1:8765/api/blocks | jq '.[] | select(.enabled == true)'
 - **Settings Lock**: Prevents all configuration changes until expiry (NTP-verified)
 - **Daemon Protection**: Refuses SIGTERM during lock, auto-restarts via systemd
 - **Extension Heartbeat**: Browser closes if extension stops (60s timeout)
+- **Safe Search Enforcement**: Automatically adds safe search parameters to Google, Bing, and DuckDuckGo
 - **Time Verification**: NTP check prevents clock manipulation
 - **Lock Mode**: Configuration frozen during blocking periods
 - **Fail-Safe**: Network/DB errors result in blocking (not allowing)

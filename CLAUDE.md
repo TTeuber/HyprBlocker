@@ -112,6 +112,7 @@ timestamp DATETIME
 | `/api/grace-period`            | GET/POST       | Grace period for extension setup         |
 | `/api/blocked-sites`           | GET            | Current blocked patterns (for extension) |
 | `/api/settings/browser-enforcement` | GET/PUT   | Browser enforcement toggle               |
+| `/api/settings/safe-search`    | GET/PUT        | Safe search enforcement toggle           |
 | `/api/settings/watchdog`       | GET/PUT        | Watchdog enable/disable, count           |
 | `/api/settings/lock`           | GET/POST/DELETE| Settings lock (lock-until with NTP)      |
 
@@ -151,8 +152,53 @@ timestamp DATETIME
 - **NTP verification**: Prevents clock manipulation
 - **Fail-safe design**: Errors result in blocking (not allowing)
 - **Browser enforcement**: Force-close browsers if extension stops responding
+- **Safe search enforcement**: Forces strict safe search on Google, Bing, and DuckDuckGo
 - **Incognito detection**: Extension reports incognito status
 - **Watchdog system**: Independent processes restart daemon if killed
+
+## Safe Search Enforcement
+
+The safe search enforcement feature automatically modifies search engine URLs to enable strict safe search mode.
+
+### How it works
+
+1. Daemon stores `safe_search_enabled` boolean in config (`config.py`)
+2. `/api/blocked-sites` endpoint includes `safe_search_enabled` in response
+3. Extension stores setting and applies it before blocking check
+4. When user navigates to a search engine, extension checks and modifies URL if needed
+
+### Search Engine Parameters
+
+| Engine | Detection | Parameter | Value |
+|--------|-----------|-----------|-------|
+| Google | `google.*` + `/search` path | `safe` | `active` |
+| Bing | `bing.com` + `/search` path | `adlt` | `strict` |
+| DuckDuckGo | `duckduckgo.com` (any path) | `kp` | `1` |
+
+### Implementation (extension/background.js)
+
+```javascript
+function enforceSafeSearch(url) {
+    const urlObj = new URL(url);
+
+    // Check if parameter already set
+    if (urlObj.searchParams.get('safe') === 'active') return { redirect: false };
+
+    // Add parameter and redirect
+    urlObj.searchParams.set('safe', 'active');
+    return { redirect: true, newUrl: urlObj.toString() };
+}
+```
+
+### Integration with blocking
+
+Safe search enforcement runs **before** blocking logic in `handleNavigationBlock()`:
+1. Check if safe search is enabled
+2. If enabled, enforce safe search parameters
+3. If redirect needed, stop processing (don't check for blocks)
+4. Otherwise, continue with normal blocking logic
+
+This ensures search engines are accessible but with safe search enforced.
 
 ## Watchdog System
 
@@ -196,6 +242,7 @@ Location: `~/.config/website-blocker/watchdog_state.json`
 2. **Schedule checking**: Daemon polls every 10s, activates blocks
 3. **Browser monitoring**: Extension → POST /api/heartbeat every 30s
 4. **Blocking enforcement**:
+   - Extension enforces safe search (if enabled) via URL parameter injection
    - Extension blocks in-browser via webNavigation API
    - Daemon closes non-compliant browsers via Hyprland IPC
 5. **App blocking**: Daemon → Hyprland IPC → Close windows
@@ -224,6 +271,7 @@ Location: `~/.config/website-blocker/watchdog_state.json`
 {
   "security": {
     "browser_enforcement_enabled": true,
+    "safe_search_enabled": false,
     "watchdog_enabled": false,
     "watchdog_count": 3,
     "settings_lock_until": null

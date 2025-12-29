@@ -139,6 +139,15 @@ class BrowserEnforcementUpdateRequest(BaseModel):
     enabled: bool
 
 
+class SafeSearchStatusResponse(BaseModel):
+    enabled: bool
+    source: str  # 'config' or 'default'
+
+
+class SafeSearchUpdateRequest(BaseModel):
+    enabled: bool
+
+
 class WatchdogStatusResponse(BaseModel):
     enabled: bool
     count: int
@@ -547,10 +556,16 @@ async def get_blocked_sites():
     intersection-based allow list logic.
     """
     from scheduler import get_scheduler
+    from config import get_config
 
     scheduler = get_scheduler()
+    config = get_config()
+
     if scheduler is None:
-        return {"blocks": []}
+        return {
+            "blocks": [],
+            "safe_search_enabled": config.security.safe_search_enabled
+        }
 
     active_blocks = await scheduler.get_active_blocks()
 
@@ -584,7 +599,8 @@ async def get_blocked_sites():
         blocks_data.append(block_data)
 
     return {
-        "blocks": blocks_data
+        "blocks": blocks_data,
+        "safe_search_enabled": config.security.safe_search_enabled
     }
 
 
@@ -632,6 +648,54 @@ async def update_browser_enforcement_status(request: BrowserEnforcementUpdateReq
         logger.info("✅ Browser enforcement ENABLED via UI")
     else:
         logger.warning("🚨 Browser enforcement DISABLED via UI")
+
+    return {"success": True, "enabled": request.enabled}
+
+
+# Safe Search settings endpoints
+@app.get("/api/settings/safe-search", response_model=SafeSearchStatusResponse)
+async def get_safe_search_status():
+    """Get current safe search enforcement status."""
+    from config import get_config
+
+    config = get_config()
+
+    return SafeSearchStatusResponse(
+        enabled=config.security.safe_search_enabled,
+        source='config' if config.security.safe_search_enabled != False else 'default'
+    )
+
+
+@app.put("/api/settings/safe-search")
+async def update_safe_search_status(request: SafeSearchUpdateRequest):
+    """Update safe search enforcement setting.
+
+    Blocked if settings are locked.
+    """
+    from config import get_config, save_config, reload_config
+    from watchdog import is_settings_locked_ntp
+
+    logger = logging.getLogger(__name__)
+
+    # Check if settings are locked
+    if is_settings_locked_ntp():
+        raise HTTPException(
+            status_code=403,
+            detail="Settings are locked and cannot be changed"
+        )
+
+    # Update config
+    config = get_config()
+    config.security.safe_search_enabled = request.enabled
+    save_config(config)
+
+    # Reload config to apply changes immediately
+    reload_config()
+
+    if request.enabled:
+        logger.info("✅ Safe search enforcement ENABLED via UI")
+    else:
+        logger.warning("🚨 Safe search enforcement DISABLED via UI")
 
     return {"success": True, "enabled": request.enabled}
 

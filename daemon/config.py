@@ -36,6 +36,7 @@ class SecurityConfig:
     max_time_diff_seconds: int = 300
     verify_time_on_transitions: bool = True
     browser_enforcement_enabled: bool = True  # Enable browser enforcement
+    safe_search_enabled: bool = False  # Enable safe search enforcement on search engines
     watchdog_enabled: bool = False  # Enable watchdog processes for resilience
     watchdog_count: int = 3  # Number of watchdog processes (2-5)
     settings_lock_until: Optional[str] = None  # ISO datetime string when settings lock expires
@@ -124,6 +125,7 @@ def save_config(config: Config) -> None:
             "max_time_diff_seconds": config.security.max_time_diff_seconds,
             "verify_time_on_transitions": config.security.verify_time_on_transitions,
             "browser_enforcement_enabled": config.security.browser_enforcement_enabled,
+            "safe_search_enabled": config.security.safe_search_enabled,
             "watchdog_enabled": config.security.watchdog_enabled,
             "watchdog_count": config.security.watchdog_count,
             "settings_lock_until": config.security.settings_lock_until

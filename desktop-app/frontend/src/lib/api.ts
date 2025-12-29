@@ -11,6 +11,8 @@ import type {
   GracePeriodStatus,
   BrowserEnforcementStatus,
   BrowserEnforcementUpdateResponse,
+  SafeSearchStatus,
+  SafeSearchUpdateResponse,
   WatchdogStatus,
   WatchdogUpdateResponse,
   SettingsLockStatus,
@@ -93,6 +95,16 @@ export const api = {
   async updateBrowserEnforcement(enabled: boolean): Promise<BrowserEnforcementUpdateResponse> {
     await waitForPywebview();
     return window.pywebview.api.update_browser_enforcement(enabled);
+  },
+
+  async getSafeSearchStatus(): Promise<SafeSearchStatus> {
+    await waitForPywebview();
+    return window.pywebview.api.get_safe_search_status();
+  },
+
+  async updateSafeSearch(enabled: boolean): Promise<SafeSearchUpdateResponse> {
+    await waitForPywebview();
+    return window.pywebview.api.update_safe_search(enabled);
   },
 
   async getWatchdogStatus(): Promise<WatchdogStatus> {

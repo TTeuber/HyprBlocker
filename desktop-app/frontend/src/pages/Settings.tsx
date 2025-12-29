@@ -7,6 +7,7 @@ import { Button } from "../components/ui/Button";
 import { api } from "../lib/api";
 import type {
   BrowserEnforcementStatus,
+  SafeSearchStatus,
   WatchdogStatus,
   SettingsLockStatus,
 } from "../types";
@@ -15,6 +16,9 @@ export function Settings() {
   const { status } = useStatus();
   const { showToast } = useToast();
   const [browserEnforcementStatus, setBrowserEnforcementStatus] = useState<BrowserEnforcementStatus | null>(
+    null,
+  );
+  const [safeSearchStatus, setSafeSearchStatus] = useState<SafeSearchStatus | null>(
     null,
   );
   const [watchdogStatus, setWatchdogStatus] = useState<WatchdogStatus | null>(
@@ -29,6 +33,7 @@ export function Settings() {
   // Load all settings on mount
   useEffect(() => {
     loadBrowserEnforcementStatus();
+    loadSafeSearchStatus();
     loadWatchdogStatus();
     loadSettingsLock();
   }, []);
@@ -70,6 +75,48 @@ export function Settings() {
       console.error("Failed to update browser enforcement:", error);
       showToast("Failed to update setting", "error");
       await loadBrowserEnforcementStatus();
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const loadSafeSearchStatus = async () => {
+    try {
+      const status = await api.getSafeSearchStatus();
+      setSafeSearchStatus(status);
+    } catch (error) {
+      console.error("Failed to load safe search status:", error);
+      showToast("Failed to load settings", "error");
+    }
+  };
+
+  const handleSafeSearchToggle = async (enabled: boolean) => {
+    setUpdating(true);
+    try {
+      const result = await api.updateSafeSearch(enabled);
+
+      if (result.success) {
+        showToast(
+          enabled
+            ? "Safe search enforcement enabled"
+            : "Safe search enforcement disabled",
+          "success",
+        );
+        await loadSafeSearchStatus();
+      } else if (result.settingsLocked) {
+        showToast(
+          "Settings are locked and cannot be changed",
+          "warning",
+        );
+        await loadSafeSearchStatus();
+      } else {
+        showToast(result.error || "Failed to update setting", "error");
+        await loadSafeSearchStatus();
+      }
+    } catch (error) {
+      console.error("Failed to update safe search:", error);
+      showToast("Failed to update setting", "error");
+      await loadSafeSearchStatus();
     } finally {
       setUpdating(false);
     }
@@ -241,6 +288,26 @@ export function Settings() {
             <p className="text-xs text-text-secondary mt-2">
               When enabled, browsers without the extension installed will be closed.
               Disable this if you don't want browser enforcement.
+            </p>
+            {isSettingsLocked && (
+              <p className="text-xs text-yellow-500 mt-2">
+                Settings are locked and cannot be changed.
+              </p>
+            )}
+          </div>
+        </Card>
+
+        <Card title="Safe Search Enforcement">
+          <div className="py-3">
+            <Checkbox
+              label="Enforce safe search on search engines"
+              checked={safeSearchStatus?.enabled ?? false}
+              onChange={(e) => handleSafeSearchToggle(e.target.checked)}
+              disabled={updating || isSettingsLocked}
+            />
+            <p className="text-xs text-text-secondary mt-2">
+              Forces Google, Bing, and DuckDuckGo to use strict safe search mode.
+              Search parameters are automatically added when visiting these search engines.
             </p>
             {isSettingsLocked && (
               <p className="text-xs text-yellow-500 mt-2">

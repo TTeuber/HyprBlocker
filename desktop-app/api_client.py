@@ -77,6 +77,13 @@ class BrowserEnforcementStatus:
 
 
 @dataclass
+class SafeSearchStatus:
+    """Represents safe search enforcement status."""
+    enabled: bool
+    source: str  # 'config' or 'default'
+
+
+@dataclass
 class WatchdogStatus:
     """Represents watchdog status."""
     enabled: bool
@@ -348,6 +355,43 @@ class DaemonClient:
                 raise PermissionError("Settings are locked and cannot be changed")
             else:
                 raise Exception(f"Failed to update browser enforcement: {response.text}")
+        except requests.RequestException as e:
+            raise Exception(f"Request failed: {str(e)}")
+
+    def get_safe_search_status(self) -> Optional[SafeSearchStatus]:
+        """Get safe search enforcement status.
+
+        Returns:
+            SafeSearchStatus or None if failed
+        """
+        try:
+            response = self._request('GET', '/api/settings/safe-search')
+            if response.status_code == 200:
+                return SafeSearchStatus(**response.json())
+        except requests.RequestException:
+            pass
+        return None
+
+    def update_safe_search(self, enabled: bool) -> dict:
+        """Update safe search enforcement setting.
+
+        Args:
+            enabled: Whether to enable safe search enforcement
+
+        Returns:
+            Dict with success status
+
+        Raises:
+            PermissionError: If settings are locked
+        """
+        try:
+            response = self._request('PUT', '/api/settings/safe-search', json={'enabled': enabled})
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 403:
+                raise PermissionError("Settings are locked and cannot be changed")
+            else:
+                raise Exception(f"Failed to update safe search: {response.text}")
         except requests.RequestException as e:
             raise Exception(f"Request failed: {str(e)}")
 
