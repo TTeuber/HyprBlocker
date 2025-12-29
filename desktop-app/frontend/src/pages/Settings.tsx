@@ -1,20 +1,30 @@
-import { useState, useEffect } from 'react';
-import { useStatus } from '../context/StatusContext';
-import { useToast } from '../context/ToastContext';
-import { Card } from '../components/ui/Card';
-import { Checkbox, Select } from '../components/ui/FormElements';
-import { Button } from '../components/ui/Button';
-import { api } from '../lib/api';
-import type { DevModeStatus, WatchdogStatus, SettingsLockStatus } from '../types';
+import { useState, useEffect } from "react";
+import { useStatus } from "../context/StatusContext";
+import { useToast } from "../context/ToastContext";
+import { Card } from "../components/ui/Card";
+import { Checkbox, Select } from "../components/ui/FormElements";
+import { Button } from "../components/ui/Button";
+import { api } from "../lib/api";
+import type {
+  DevModeStatus,
+  WatchdogStatus,
+  SettingsLockStatus,
+} from "../types";
 
 export function Settings() {
   const { status } = useStatus();
   const { showToast } = useToast();
-  const [devModeStatus, setDevModeStatus] = useState<DevModeStatus | null>(null);
-  const [watchdogStatus, setWatchdogStatus] = useState<WatchdogStatus | null>(null);
-  const [settingsLock, setSettingsLock] = useState<SettingsLockStatus | null>(null);
+  const [devModeStatus, setDevModeStatus] = useState<DevModeStatus | null>(
+    null,
+  );
+  const [watchdogStatus, setWatchdogStatus] = useState<WatchdogStatus | null>(
+    null,
+  );
+  const [settingsLock, setSettingsLock] = useState<SettingsLockStatus | null>(
+    null,
+  );
   const [updating, setUpdating] = useState(false);
-  const [lockDuration, setLockDuration] = useState('1h');
+  const [lockDuration, setLockDuration] = useState("1h");
 
   // Load all settings on mount
   useEffect(() => {
@@ -28,8 +38,8 @@ export function Settings() {
       const status = await api.getDevModeStatus();
       setDevModeStatus(status);
     } catch (error) {
-      console.error('Failed to load dev mode status:', error);
-      showToast('Failed to load settings', 'error');
+      console.error("Failed to load dev mode status:", error);
+      showToast("Failed to load settings", "error");
     }
   };
 
@@ -41,24 +51,24 @@ export function Settings() {
       if (result.success) {
         showToast(
           enabled
-            ? 'Browser enforcement disabled'
-            : 'Browser enforcement enabled',
-          'success'
+            ? "Browser enforcement disabled"
+            : "Browser enforcement enabled",
+          "success",
         );
         await loadDevModeStatus();
       } else if (result.env_override) {
         showToast(
-          'Dev mode is controlled by environment variable and cannot be changed',
-          'warning'
+          "Dev mode is controlled by environment variable and cannot be changed",
+          "warning",
         );
         await loadDevModeStatus();
       } else {
-        showToast(result.error || 'Failed to update setting', 'error');
+        showToast(result.error || "Failed to update setting", "error");
         await loadDevModeStatus();
       }
     } catch (error) {
-      console.error('Failed to update dev mode:', error);
-      showToast('Failed to update setting', 'error');
+      console.error("Failed to update dev mode:", error);
+      showToast("Failed to update setting", "error");
       await loadDevModeStatus();
     } finally {
       setUpdating(false);
@@ -70,7 +80,7 @@ export function Settings() {
       const status = await api.getWatchdogStatus();
       setWatchdogStatus(status);
     } catch (error) {
-      console.error('Failed to load watchdog status:', error);
+      console.error("Failed to load watchdog status:", error);
     }
   };
 
@@ -79,7 +89,7 @@ export function Settings() {
       const lock = await api.getSettingsLock();
       setSettingsLock(lock);
     } catch (error) {
-      console.error('Failed to load settings lock:', error);
+      console.error("Failed to load settings lock:", error);
     }
   };
 
@@ -91,19 +101,19 @@ export function Settings() {
       if (result.success) {
         showToast(
           enabled
-            ? 'Watchdog protection enabled'
-            : 'Watchdog protection disabled',
-          'success'
+            ? "Watchdog protection enabled"
+            : "Watchdog protection disabled",
+          "success",
         );
         await loadWatchdogStatus();
       } else if (result.settingsLocked) {
-        showToast('Settings are locked and cannot be changed', 'warning');
+        showToast("Settings are locked and cannot be changed", "warning");
       } else {
-        showToast(result.error || 'Failed to update watchdog', 'error');
+        showToast(result.error || "Failed to update watchdog", "error");
       }
     } catch (error) {
-      console.error('Failed to update watchdog:', error);
-      showToast('Failed to update watchdog', 'error');
+      console.error("Failed to update watchdog:", error);
+      showToast("Failed to update watchdog", "error");
     } finally {
       setUpdating(false);
     }
@@ -115,16 +125,16 @@ export function Settings() {
       const result = await api.updateWatchdog(undefined, count);
 
       if (result.success) {
-        showToast(`Watchdog count set to ${count}`, 'success');
+        showToast(`Watchdog count set to ${count}`, "success");
         await loadWatchdogStatus();
       } else if (result.settingsLocked) {
-        showToast('Settings are locked and cannot be changed', 'warning');
+        showToast("Settings are locked and cannot be changed", "warning");
       } else {
-        showToast(result.error || 'Failed to update watchdog count', 'error');
+        showToast(result.error || "Failed to update watchdog count", "error");
       }
     } catch (error) {
-      console.error('Failed to update watchdog count:', error);
-      showToast('Failed to update watchdog count', 'error');
+      console.error("Failed to update watchdog count:", error);
+      showToast("Failed to update watchdog count", "error");
     } finally {
       setUpdating(false);
     }
@@ -138,23 +148,35 @@ export function Settings() {
       let lockUntil: Date;
 
       switch (lockDuration) {
-        case '15m':
+        case "15m":
           lockUntil = new Date(now.getTime() + 15 * 60 * 1000);
           break;
-        case '30m':
+        case "30m":
           lockUntil = new Date(now.getTime() + 30 * 60 * 1000);
           break;
-        case '1h':
+        case "1h":
           lockUntil = new Date(now.getTime() + 60 * 60 * 1000);
           break;
-        case '4h':
+        case "4h":
           lockUntil = new Date(now.getTime() + 4 * 60 * 60 * 1000);
           break;
-        case '8h':
+        case "8h":
           lockUntil = new Date(now.getTime() + 8 * 60 * 60 * 1000);
           break;
-        case '24h':
+        case "1d":
           lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+          break;
+        case "2d":
+          lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000 * 2);
+          break;
+        case "1w":
+          lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000 * 7);
+          break;
+        case "2w":
+          lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000 * 14);
+          break;
+        case "1m":
+          lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000 * 30);
           break;
         default:
           lockUntil = new Date(now.getTime() + 60 * 60 * 1000);
@@ -163,21 +185,21 @@ export function Settings() {
       const result = await api.lockSettings(lockUntil.toISOString());
 
       if (result.success) {
-        showToast('Settings locked', 'success');
+        showToast("Settings locked", "success");
         await loadSettingsLock();
       } else {
-        showToast(result.error || 'Failed to lock settings', 'error');
+        showToast(result.error || "Failed to lock settings", "error");
       }
     } catch (error) {
-      console.error('Failed to lock settings:', error);
-      showToast('Failed to lock settings', 'error');
+      console.error("Failed to lock settings:", error);
+      showToast("Failed to lock settings", "error");
     } finally {
       setUpdating(false);
     }
   };
 
   const formatRemainingTime = (seconds: number | null): string => {
-    if (seconds === null || seconds <= 0) return '';
+    if (seconds === null || seconds <= 0) return "";
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     if (hours > 0) {
@@ -199,7 +221,7 @@ export function Settings() {
           <div className="flex justify-between py-3 border-b border-border">
             <span className="text-text-secondary">Status:</span>
             <span className="font-medium text-text">
-              {status?.running ? 'Running' : 'Not Running'}
+              {status?.running ? "Running" : "Not Running"}
             </span>
           </div>
           <div className="flex justify-between py-3">
@@ -214,17 +236,17 @@ export function Settings() {
               label="Disable browser enforcement"
               checked={devModeStatus?.enabled ?? false}
               onChange={(e) => handleDevModeToggle(e.target.checked)}
-              disabled={updating || devModeStatus?.source === 'environment'}
+              disabled={updating || devModeStatus?.source === "environment"}
             />
             <p className="text-xs text-text-secondary mt-2">
               When enabled, browsers will not be killed for missing extensions.
               Useful for testing or if you don't want browser enforcement.
             </p>
-            {devModeStatus?.source === 'environment' && (
+            {devModeStatus?.source === "environment" && (
               <p className="text-xs text-yellow-500 mt-2">
-                ⚠️ This setting is controlled by the BLOCKER_DEV_MODE environment variable
-                and cannot be changed through the UI. Remove the systemd override file to
-                use the UI toggle.
+                ⚠️ This setting is controlled by the BLOCKER_DEV_MODE
+                environment variable and cannot be changed through the UI.
+                Remove the systemd override file to use the UI toggle.
               </p>
             )}
           </div>
@@ -237,7 +259,9 @@ export function Settings() {
           </div>
           <div className="flex justify-between py-3">
             <span className="text-text-secondary">Config:</span>
-            <span className="font-medium text-text">~/.config/website-blocker/</span>
+            <span className="font-medium text-text">
+              ~/.config/website-blocker/
+            </span>
           </div>
         </Card>
 
@@ -261,7 +285,9 @@ export function Settings() {
                 </label>
                 <Select
                   value={String(watchdogStatus?.count ?? 3)}
-                  onChange={(e) => handleWatchdogCountChange(Number(e.target.value))}
+                  onChange={(e) =>
+                    handleWatchdogCountChange(Number(e.target.value))
+                  }
                   disabled={updating || isSettingsLocked}
                 >
                   <option value="2">2</option>
@@ -270,18 +296,20 @@ export function Settings() {
                   <option value="5">5</option>
                 </Select>
 
-                {watchdogStatus?.activeWatchdogs && watchdogStatus.activeWatchdogs.length > 0 && (
-                  <div className="mt-3 text-xs text-text-secondary">
-                    <p className="font-medium">Active watchdogs:</p>
-                    <ul className="mt-1 space-y-1">
-                      {watchdogStatus.activeWatchdogs.map((wd) => (
-                        <li key={wd.pid}>
-                          PID {wd.pid} ({wd.name}) - {Math.floor(wd.uptime_seconds / 60)}m uptime
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                {watchdogStatus?.activeWatchdogs &&
+                  watchdogStatus.activeWatchdogs.length > 0 && (
+                    <div className="mt-3 text-xs text-text-secondary">
+                      <p className="font-medium">Active watchdogs:</p>
+                      <ul className="mt-1 space-y-1">
+                        {watchdogStatus.activeWatchdogs.map((wd) => (
+                          <li key={wd.pid}>
+                            PID {wd.pid} ({wd.name}) -{" "}
+                            {Math.floor(wd.uptime_seconds / 60)}m uptime
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
               </div>
             )}
 
@@ -327,7 +355,11 @@ export function Settings() {
                     <option value="1h">1 hour</option>
                     <option value="4h">4 hours</option>
                     <option value="8h">8 hours</option>
-                    <option value="24h">24 hours</option>
+                    <option value="1d">24 hours</option>
+                    <option value="2d">2 days</option>
+                    <option value="1w">1 week</option>
+                    <option value="2w">2 weeks</option>
+                    <option value="1m">1 month</option>
                   </Select>
                   <Button
                     onClick={handleLockSettings}

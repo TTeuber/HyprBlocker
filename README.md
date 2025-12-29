@@ -10,6 +10,8 @@ A robust website and application blocking system for Arch Linux + Hyprland that 
 - 📱 **App Blocking** - Close blocked applications via Hyprland
 - ⏰ **Smart Scheduling** - Time-based blocking (weekdays 9-5, etc.)
 - 🔒 **Lock Mode** - Configuration becomes read-only during blocking periods
+- 🐕 **Watchdog System** - Independent processes restart daemon if killed
+- 🔐 **Settings Lock** - Prevent all changes for a duration (with NTP verification)
 - ✅ **Allow Lists** - Block sites with exceptions (e.g., block reddit except r/programming)
 - 🎯 **Path-Specific** - Block specific pages (e.g., youtube.com/shorts only)
 - 🌐 **Browser Extension** - Enforces blocks in Firefox and Chrome
@@ -206,8 +208,12 @@ Click "Add Extension" to start a 30-second grace period where browser enforcemen
 
 - **Config**: `~/.config/website-blocker/config.json`
 - **Database**: `~/.config/website-blocker/blocker.db`
+- **Watchdog State**: `~/.config/website-blocker/watchdog_state.json`
 - **Extension**: `~/.local/share/website-blocker/extension/`
-- **Logs**: `journalctl --user -u website-blocker`
+- **Logs**:
+  - Daemon: `~/.config/website-blocker/daemon.log`
+  - Watchdog: `~/.config/website-blocker/watchdog.log`
+  - Systemd: `journalctl --user -u website-blocker`
 
 ## API Endpoints
 
@@ -229,6 +235,15 @@ The daemon exposes a REST API at `http://127.0.0.1:8765`:
 - `POST /api/heartbeat` - Extension heartbeat
 - `GET /api/grace-period` - Grace period status
 - `POST /api/grace-period` - Start grace period
+
+### Settings
+- `GET /api/settings/dev-mode` - Dev mode status
+- `PUT /api/settings/dev-mode` - Toggle dev mode
+- `GET /api/settings/watchdog` - Watchdog status
+- `PUT /api/settings/watchdog` - Enable/disable watchdog
+- `GET /api/settings/lock` - Settings lock status
+- `POST /api/settings/lock` - Lock settings until datetime
+- `DELETE /api/settings/lock` - Unlock settings
 
 ## Debugging
 
@@ -304,26 +319,46 @@ curl http://127.0.0.1:8765/api/blocks | jq '.[] | select(.enabled == true)'
 ## Security Notes
 
 ### Bypass Resistance
+
+- **Watchdog System**: Independent processes restart daemon if killed (see [WATCHDOG.md](WATCHDOG.md))
+- **Settings Lock**: Prevents all configuration changes until expiry (NTP-verified)
 - **Daemon Protection**: Refuses SIGTERM during lock, auto-restarts via systemd
 - **Extension Heartbeat**: Browser closes if extension stops (60s timeout)
 - **Time Verification**: NTP check prevents clock manipulation
 - **Lock Mode**: Configuration frozen during blocking periods
 - **Fail-Safe**: Network/DB errors result in blocking (not allowing)
 
+**Watchdog Features:**
+- 2-5 configurable watchdog processes (default 3)
+- Obfuscated process names (blend in with system processes)
+- Self-perpetuating (watchdogs monitor and respawn each other)
+- Automatically restart daemon via systemctl
+- Respect settings lock (continue protecting even during shutdown attempts)
+
+See [WATCHDOG.md](WATCHDOG.md) for detailed documentation.
+
 ### Limitations
+
 **This is designed for self-control, not parental controls.**
 
-Determined users with root access can bypass:
-- `sudo systemctl stop website-blocker` (when not locked)
-- `sudo killall python` (crude but effective)
+Determined users with system access can bypass:
+- `pkill -9 python` - Kills daemon, watchdogs, and desktop app
+- `sudo systemctl disable website-blocker` - Prevents auto-start
 - Changing system time (detected via NTP when network available)
 - Editing database directly (when not locked)
 - Disabling extension (browser gets killed)
+- Boot into recovery mode
+
+**However, the watchdog system makes impulsive bypasses harder:**
+- Requires finding and killing multiple obfuscated processes
+- Settings lock prevents easy disabling via UI/API
+- Provides time to reconsider before succeeding
 
 For a more secure solution, consider:
-1. Rust rewrite (harder to bypass than Python)
-2. Kernel module (but complex to maintain)
-3. Network-level blocking (router/firewall)
+1. Network-level blocking (router/firewall)
+2. Separate user account with restricted permissions
+3. Rust rewrite (harder to bypass than Python)
+4. Kernel module (but complex to maintain)
 
 ## Project Structure
 
@@ -334,6 +369,8 @@ Blocker/
 │   ├── api.py           # REST API
 │   ├── blocker.py       # Blocking logic
 │   ├── scheduler.py     # Schedule checking
+│   ├── watchdog.py      # Watchdog manager
+│   ├── watchdog_runner.py  # Watchdog process entry point
 │   ├── database.py      # SQLAlchemy models
 │   ├── migrations.py    # Database migrations
 │   └── ...
@@ -348,6 +385,7 @@ Blocker/
 ├── config/              # Configuration templates
 ├── install.sh           # Installation script
 ├── README.md            # This file
+├── WATCHDOG.md          # Watchdog documentation
 ├── STATUS.md            # Current project status
 └── PROJECT_SPEC.md      # Original specification
 ```
@@ -427,6 +465,7 @@ Built for personal use on Arch Linux + Hyprland. Inspired by various website blo
 
 - Project Status: [STATUS.md](STATUS.md)
 - Full Specification: [PROJECT_SPEC.md](PROJECT_SPEC.md)
+- Watchdog Documentation: [WATCHDOG.md](WATCHDOG.md)
 - Installation Guide: See "Quick Start" above
 
 ---
