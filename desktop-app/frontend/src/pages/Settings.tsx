@@ -263,13 +263,12 @@ export function Settings() {
                   value={String(watchdogStatus?.count ?? 3)}
                   onChange={(e) => handleWatchdogCountChange(Number(e.target.value))}
                   disabled={updating || isSettingsLocked}
-                  options={[
-                    { value: '2', label: '2' },
-                    { value: '3', label: '3' },
-                    { value: '4', label: '4' },
-                    { value: '5', label: '5' },
-                  ]}
-                />
+                >
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                </Select>
 
                 {watchdogStatus?.activeWatchdogs && watchdogStatus.activeWatchdogs.length > 0 && (
                   <div className="mt-3 text-xs text-text-secondary">
@@ -322,15 +321,14 @@ export function Settings() {
                     value={lockDuration}
                     onChange={(e) => setLockDuration(e.target.value)}
                     disabled={updating}
-                    options={[
-                      { value: '15m', label: '15 minutes' },
-                      { value: '30m', label: '30 minutes' },
-                      { value: '1h', label: '1 hour' },
-                      { value: '4h', label: '4 hours' },
-                      { value: '8h', label: '8 hours' },
-                      { value: '24h', label: '24 hours' },
-                    ]}
-                  />
+                  >
+                    <option value="15m">15 minutes</option>
+                    <option value="30m">30 minutes</option>
+                    <option value="1h">1 hour</option>
+                    <option value="4h">4 hours</option>
+                    <option value="8h">8 hours</option>
+                    <option value="24h">24 hours</option>
+                  </Select>
                   <Button
                     onClick={handleLockSettings}
                     disabled={updating}
