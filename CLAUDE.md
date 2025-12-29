@@ -21,7 +21,16 @@ Desktop App + Browser Extension
 ### Daemon (daemon/)
 
 - `main.py` - Entry point, systemd integration, signal handling, watchdog spawning
-- `api.py` - REST API endpoints
+- `api/` - REST API package
+  - `__init__.py` - App creation and router wiring
+  - `app.py` - FastAPI app setup with CORS
+  - `deps.py` - Shared dependencies (session factory, lock checks)
+  - `schemas.py` - Pydantic request/response models
+  - `routes/` - API route handlers
+    - `heartbeat.py` - `/api/heartbeat`, `/api/grace-period`
+    - `blocks.py` - `/api/blocks` CRUD
+    - `status.py` - `/api/status`, `/api/stats`, `/api/browsers`, `/api/blocked-sites`
+    - `settings.py` - `/api/settings/*` endpoints
 - `blocker.py` - Pattern matching for websites/apps
 - `scheduler.py` - Block schedule checking and activation
 - `hyprland_monitor.py` - Window monitoring and app closing via Hyprland IPC
