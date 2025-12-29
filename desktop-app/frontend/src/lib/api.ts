@@ -11,6 +11,10 @@ import type {
   GracePeriodStatus,
   DevModeStatus,
   DevModeUpdateResponse,
+  WatchdogStatus,
+  WatchdogUpdateResponse,
+  SettingsLockStatus,
+  SettingsLockResponse,
 } from '../types';
 
 // Wait for pywebview to be ready
@@ -89,6 +93,31 @@ export const api = {
   async updateDevMode(enabled: boolean): Promise<DevModeUpdateResponse> {
     await waitForPywebview();
     return window.pywebview.api.update_dev_mode(enabled);
+  },
+
+  async getWatchdogStatus(): Promise<WatchdogStatus> {
+    await waitForPywebview();
+    return window.pywebview.api.get_watchdog_status();
+  },
+
+  async updateWatchdog(enabled?: boolean, count?: number): Promise<WatchdogUpdateResponse> {
+    await waitForPywebview();
+    return window.pywebview.api.update_watchdog(enabled, count);
+  },
+
+  async getSettingsLock(): Promise<SettingsLockStatus> {
+    await waitForPywebview();
+    return window.pywebview.api.get_settings_lock();
+  },
+
+  async lockSettings(lockUntil: string): Promise<SettingsLockResponse> {
+    await waitForPywebview();
+    return window.pywebview.api.lock_settings(lockUntil);
+  },
+
+  async unlockSettings(): Promise<SettingsLockResponse> {
+    await waitForPywebview();
+    return window.pywebview.api.unlock_settings();
   },
 };
 

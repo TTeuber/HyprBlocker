@@ -36,6 +36,9 @@ class SecurityConfig:
     max_time_diff_seconds: int = 300
     verify_time_on_transitions: bool = True
     dev_mode: bool = False  # Disable browser enforcement in dev mode
+    watchdog_enabled: bool = False  # Enable watchdog processes for resilience
+    watchdog_count: int = 3  # Number of watchdog processes (2-5)
+    settings_lock_until: Optional[str] = None  # ISO datetime string when settings lock expires
 
 
 @dataclass
@@ -118,7 +121,10 @@ def save_config(config: Config) -> None:
             "ntp_servers": config.security.ntp_servers,
             "max_time_diff_seconds": config.security.max_time_diff_seconds,
             "verify_time_on_transitions": config.security.verify_time_on_transitions,
-            "dev_mode": config.security.dev_mode
+            "dev_mode": config.security.dev_mode,
+            "watchdog_enabled": config.security.watchdog_enabled,
+            "watchdog_count": config.security.watchdog_count,
+            "settings_lock_until": config.security.settings_lock_until
         },
         "browsers": config.browsers
     }

@@ -24,6 +24,7 @@ from heartbeat_tracker import get_heartbeat_tracker
 from hyprland_monitor import init_hyprland_monitor, get_hyprland_monitor
 from lock_manager import init_lock_manager, get_lock_manager
 from scheduler import init_scheduler, get_scheduler
+from watchdog import WatchdogManager
 
 # Set up logging
 def setup_logging():
@@ -56,6 +57,7 @@ _scheduler: AsyncIOScheduler = None
 _session_factory = None
 _shutdown_event = asyncio.Event()
 _is_locked_cache: bool = False  # Cached lock state for signal handler
+_watchdog_manager: WatchdogManager = None  # Watchdog manager instance
 
 
 async def get_all_blocks() -> List[Block]:
@@ -123,7 +125,7 @@ def handle_signal(signum, frame):
 @asynccontextmanager
 async def lifespan(app):
     """Lifespan context manager for FastAPI."""
-    global _scheduler, _session_factory
+    global _scheduler, _session_factory, _watchdog_manager
 
     logger.info("Starting Website Blocker Daemon")
     config = get_config()
@@ -163,6 +165,15 @@ async def lifespan(app):
     _scheduler.start()
     logger.info("Scheduler started")
 
+    # Spawn watchdog processes if enabled
+    if config.security.watchdog_enabled:
+        _watchdog_manager = WatchdogManager(
+            watchdog_count=config.security.watchdog_count,
+            daemon_port=config.daemon.port
+        )
+        pids = _watchdog_manager.spawn_watchdogs()
+        logger.info(f"Spawned {len(pids)} watchdog processes: {pids}")
+
     # Run initial checks
     await schedule_check_job()
     await monitor_check_job()
@@ -171,6 +182,12 @@ async def lifespan(app):
 
     # Shutdown
     logger.info("Shutting down daemon")
+
+    # Signal watchdogs to shutdown (they will check settings lock themselves)
+    if _watchdog_manager:
+        _watchdog_manager.signal_shutdown()
+        logger.info("Signaled watchdog shutdown")
+
     if _scheduler:
         _scheduler.shutdown()
     await engine.dispose()

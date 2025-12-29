@@ -235,6 +235,112 @@ class API:
                 'error': str(e)
             }
 
+    def get_watchdog_status(self) -> dict:
+        """Get watchdog status.
+
+        Returns:
+            dict with watchdog status
+        """
+        status = self.client.get_watchdog_status()
+        if status:
+            return {
+                'enabled': status.enabled,
+                'count': status.count,
+                'activeWatchdogs': status.active_watchdogs
+            }
+        return {'enabled': False, 'count': 0, 'activeWatchdogs': [], 'error': 'Failed to get watchdog status'}
+
+    def update_watchdog(self, enabled: bool = None, count: int = None) -> dict:
+        """Update watchdog settings.
+
+        Args:
+            enabled: Whether to enable watchdog
+            count: Number of watchdog processes
+
+        Returns:
+            dict with success status
+        """
+        try:
+            result = self.client.update_watchdog(enabled=enabled, count=count)
+            return {
+                'success': True,
+                'enabled': result.get('enabled'),
+                'count': result.get('count')
+            }
+        except PermissionError as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'settingsLocked': True
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def get_settings_lock(self) -> dict:
+        """Get settings lock status.
+
+        Returns:
+            dict with settings lock status
+        """
+        status = self.client.get_settings_lock()
+        if status:
+            return {
+                'locked': status.locked,
+                'lockUntil': status.lock_until,
+                'remainingSeconds': status.remaining_seconds
+            }
+        return {'locked': False, 'lockUntil': None, 'remainingSeconds': None}
+
+    def lock_settings(self, lock_until: str) -> dict:
+        """Lock settings until a specific datetime.
+
+        Args:
+            lock_until: ISO datetime string
+
+        Returns:
+            dict with success status
+        """
+        try:
+            result = self.client.lock_settings(lock_until)
+            return {
+                'success': True,
+                'lockUntil': result.get('lock_until')
+            }
+        except PermissionError as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def unlock_settings(self) -> dict:
+        """Unlock settings.
+
+        Returns:
+            dict with success status
+        """
+        try:
+            self.client.unlock_settings()
+            return {'success': True}
+        except PermissionError as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'stillLocked': True
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
 
 def get_web_dir() -> str:
     """Get the path to the web directory."""

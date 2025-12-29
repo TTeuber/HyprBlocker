@@ -76,6 +76,22 @@ class DevModeStatus:
     source: str  # 'environment', 'config', or 'default'
 
 
+@dataclass
+class WatchdogStatus:
+    """Represents watchdog status."""
+    enabled: bool
+    count: int
+    active_watchdogs: list  # [{pid, name, uptime_seconds}]
+
+
+@dataclass
+class SettingsLockStatus:
+    """Represents settings lock status."""
+    locked: bool
+    lock_until: Optional[str]
+    remaining_seconds: Optional[int]
+
+
 class DaemonClient:
     """Client for the Website Blocker daemon API."""
 
@@ -332,5 +348,103 @@ class DaemonClient:
                 raise PermissionError("Dev mode is controlled by environment variable")
             else:
                 raise Exception(f"Failed to update dev mode: {response.text}")
+        except requests.RequestException as e:
+            raise Exception(f"Request failed: {str(e)}")
+
+    def get_watchdog_status(self) -> Optional[WatchdogStatus]:
+        """Get watchdog status.
+
+        Returns:
+            WatchdogStatus or None if failed
+        """
+        try:
+            response = self._request('GET', '/api/settings/watchdog')
+            if response.status_code == 200:
+                return WatchdogStatus(**response.json())
+        except requests.RequestException:
+            pass
+        return None
+
+    def update_watchdog(self, enabled: Optional[bool] = None, count: Optional[int] = None) -> dict:
+        """Update watchdog settings.
+
+        Args:
+            enabled: Whether to enable watchdog
+            count: Number of watchdog processes
+
+        Returns:
+            Dict with success status
+
+        Raises:
+            PermissionError: If settings are locked
+        """
+        try:
+            data = {}
+            if enabled is not None:
+                data['enabled'] = enabled
+            if count is not None:
+                data['count'] = count
+
+            response = self._request('PUT', '/api/settings/watchdog', json=data)
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 403:
+                raise PermissionError("Settings are locked and cannot be changed")
+            else:
+                raise Exception(f"Failed to update watchdog: {response.text}")
+        except requests.RequestException as e:
+            raise Exception(f"Request failed: {str(e)}")
+
+    def get_settings_lock(self) -> Optional[SettingsLockStatus]:
+        """Get settings lock status.
+
+        Returns:
+            SettingsLockStatus or None if failed
+        """
+        try:
+            response = self._request('GET', '/api/settings/lock')
+            if response.status_code == 200:
+                return SettingsLockStatus(**response.json())
+        except requests.RequestException:
+            pass
+        return None
+
+    def lock_settings(self, lock_until: str) -> dict:
+        """Lock settings until a specific datetime.
+
+        Args:
+            lock_until: ISO datetime string
+
+        Returns:
+            Dict with success status
+        """
+        try:
+            response = self._request('POST', '/api/settings/lock', json={'lock_until': lock_until})
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 403:
+                raise PermissionError("System time appears to be manipulated")
+            else:
+                raise Exception(f"Failed to lock settings: {response.text}")
+        except requests.RequestException as e:
+            raise Exception(f"Request failed: {str(e)}")
+
+    def unlock_settings(self) -> dict:
+        """Unlock settings.
+
+        Returns:
+            Dict with success status
+
+        Raises:
+            PermissionError: If lock has not expired
+        """
+        try:
+            response = self._request('DELETE', '/api/settings/lock')
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 403:
+                raise PermissionError("Settings are still locked")
+            else:
+                raise Exception(f"Failed to unlock settings: {response.text}")
         except requests.RequestException as e:
             raise Exception(f"Request failed: {str(e)}")

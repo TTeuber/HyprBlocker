@@ -115,6 +115,40 @@ export interface DevModeUpdateResponse {
   env_override?: boolean;
 }
 
+// Watchdog status
+export interface WatchdogStatus {
+  enabled: boolean;
+  count: number;
+  activeWatchdogs: Array<{
+    pid: number;
+    name: string;
+    uptime_seconds: number;
+  }>;
+  error?: string;
+}
+
+export interface WatchdogUpdateResponse {
+  success: boolean;
+  enabled?: boolean;
+  count?: number;
+  error?: string;
+  settingsLocked?: boolean;
+}
+
+// Settings lock
+export interface SettingsLockStatus {
+  locked: boolean;
+  lockUntil: string | null;
+  remainingSeconds: number | null;
+}
+
+export interface SettingsLockResponse {
+  success: boolean;
+  lockUntil?: string;
+  error?: string;
+  stillLocked?: boolean;
+}
+
 // Navigation pages
 export type Page = 'dashboard' | 'blocks' | 'stats' | 'browsers' | 'settings';
 
@@ -145,6 +179,11 @@ declare global {
         get_grace_period_status(): Promise<GracePeriodStatus>;
         get_dev_mode_status(): Promise<DevModeStatus>;
         update_dev_mode(enabled: boolean): Promise<DevModeUpdateResponse>;
+        get_watchdog_status(): Promise<WatchdogStatus>;
+        update_watchdog(enabled?: boolean, count?: number): Promise<WatchdogUpdateResponse>;
+        get_settings_lock(): Promise<SettingsLockStatus>;
+        lock_settings(lock_until: string): Promise<SettingsLockResponse>;
+        unlock_settings(): Promise<SettingsLockResponse>;
       };
     };
   }

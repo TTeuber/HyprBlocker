@@ -20,17 +20,19 @@ Desktop App + Browser Extension
 
 ### Daemon (daemon/)
 
-- `main.py` - Entry point, systemd integration, signal handling
-- `api.py` - 26 REST API endpoints
+- `main.py` - Entry point, systemd integration, signal handling, watchdog spawning
+- `api.py` - REST API endpoints
 - `blocker.py` - Pattern matching for websites/apps
 - `scheduler.py` - Block schedule checking and activation
 - `hyprland_monitor.py` - Window monitoring and app closing via Hyprland IPC
 - `heartbeat_tracker.py` - Browser compliance tracking
-- `lock_manager.py` - Lock mode enforcement
+- `lock_manager.py` - Lock mode enforcement (per-block)
 - `time_verifier.py` - NTP time verification
 - `database.py` - SQLAlchemy ORM models
 - `config.py` - Configuration management
 - `migrations.py` - Database migration logic
+- `watchdog.py` - Watchdog manager and process logic
+- `watchdog_runner.py` - Standalone watchdog process entry point
 
 ### Desktop App (desktop-app/)
 
@@ -98,18 +100,20 @@ timestamp DATETIME
 
 ## Key API Endpoints
 
-| Endpoint                       | Method     | Purpose                                  |
-| ------------------------------ | ---------- | ---------------------------------------- |
-| `/api/status`                  | GET        | Daemon status, active blocks, lock state |
-| `/api/blocks`                  | GET/POST   | List/create blocks                       |
-| `/api/blocks/{id}`             | PUT/DELETE | Update/delete block                      |
-| `/api/blocks/{id}/lock-status` | GET        | Check if block is locked                 |
-| `/api/stats`                   | GET        | Blocking statistics                      |
-| `/api/browsers`                | GET        | Browser extension status                 |
-| `/api/heartbeat`               | POST       | Browser extension heartbeat              |
-| `/api/grace-period`            | GET/POST   | Grace period for extension setup         |
-| `/api/blocked-sites`           | GET        | Current blocked patterns (for extension) |
-| `/api/settings/dev-mode`       | GET/PUT    | Dev mode toggle                          |
+| Endpoint                       | Method         | Purpose                                  |
+| ------------------------------ | -------------- | ---------------------------------------- |
+| `/api/status`                  | GET            | Daemon status, active blocks, lock state |
+| `/api/blocks`                  | GET/POST       | List/create blocks                       |
+| `/api/blocks/{id}`             | PUT/DELETE     | Update/delete block                      |
+| `/api/blocks/{id}/lock-status` | GET            | Check if block is locked                 |
+| `/api/stats`                   | GET            | Blocking statistics                      |
+| `/api/browsers`                | GET            | Browser extension status                 |
+| `/api/heartbeat`               | POST           | Browser extension heartbeat              |
+| `/api/grace-period`            | GET/POST       | Grace period for extension setup         |
+| `/api/blocked-sites`           | GET            | Current blocked patterns (for extension) |
+| `/api/settings/dev-mode`       | GET/PUT        | Dev mode toggle                          |
+| `/api/settings/watchdog`       | GET/PUT        | Watchdog enable/disable, count           |
+| `/api/settings/lock`           | GET/POST/DELETE| Settings lock (lock-until with NTP)      |
 
 ## Data Model
 
@@ -141,12 +145,50 @@ timestamp DATETIME
 
 ## Security Features
 
-- **Lock mode**: Prevents configuration changes when active
+- **Lock mode**: Prevents configuration changes when active (per-block)
+- **Settings lock**: Prevents all settings changes until expiry (with NTP verification)
 - **Signal handling**: Daemon refuses SIGTERM during lock
 - **NTP verification**: Prevents clock manipulation
 - **Fail-safe design**: Errors result in blocking (not allowing)
 - **Browser enforcement**: Force-close browsers if extension stops responding
 - **Incognito detection**: Extension reports incognito status
+- **Watchdog system**: Independent processes restart daemon if killed
+
+## Watchdog System
+
+The watchdog system provides daemon resilience by spawning independent processes that monitor the daemon and each other.
+
+### How it works
+
+1. When enabled, daemon spawns N watchdog processes (configurable 2-5, default 3)
+2. Each watchdog monitors:
+   - Daemon health (HTTP check every 5 seconds)
+   - Sibling watchdog processes (PID check every 10 seconds)
+3. If daemon dies → watchdog restarts via `systemctl --user restart website-blocker`
+4. If sibling dies → remaining watchdogs respawn it
+5. Watchdogs use obfuscated process names for resilience
+
+### State File
+
+Location: `~/.config/website-blocker/watchdog_state.json`
+
+```json
+{
+  "enabled": true,
+  "watchdog_count": 3,
+  "watchdogs": [
+    {"pid": 12345, "name": "kworker-7", "started": "...", "last_heartbeat": "..."}
+  ],
+  "daemon_pid": 12340,
+  "shutdown_requested": false
+}
+```
+
+### Settings Lock Integration
+
+- When settings are locked, watchdogs ignore shutdown signals
+- Watchdogs verify lock status via NTP time to prevent clock manipulation
+- This ensures daemon stays running even if user tries to stop it during lock
 
 ## Data Flow
 
@@ -170,8 +212,24 @@ timestamp DATETIME
 
 - Config: `~/.config/website-blocker/config.json`
 - Database: `~/.config/website-blocker/blocker.db`
+- Watchdog state: `~/.config/website-blocker/watchdog_state.json`
+- Daemon log: `~/.config/website-blocker/daemon.log`
+- Watchdog log: `~/.config/website-blocker/watchdog.log`
 - Systemd: `~/.config/systemd/user/website-blocker.service`
 - Native messaging: `~/.config/chromium/NativeMessagingHosts/com.websiteblocker.host.json`
+
+### Config Fields (config.json security section)
+
+```json
+{
+  "security": {
+    "dev_mode": false,
+    "watchdog_enabled": false,
+    "watchdog_count": 3,
+    "settings_lock_until": null
+  }
+}
+```
 
 ## Design Principles
 

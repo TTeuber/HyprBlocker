@@ -139,6 +139,27 @@ class DevModeUpdateRequest(BaseModel):
     enabled: bool
 
 
+class WatchdogStatusResponse(BaseModel):
+    enabled: bool
+    count: int
+    active_watchdogs: List[dict]  # [{pid, name, uptime_seconds}]
+
+
+class WatchdogUpdateRequest(BaseModel):
+    enabled: Optional[bool] = None
+    count: Optional[int] = None
+
+
+class SettingsLockResponse(BaseModel):
+    locked: bool
+    lock_until: Optional[str]  # ISO datetime
+    remaining_seconds: Optional[int]
+
+
+class SettingsLockRequest(BaseModel):
+    lock_until: str  # ISO datetime
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Website Blocker Daemon",
@@ -623,3 +644,208 @@ async def update_dev_mode_status(request: DevModeUpdateRequest):
         logger.info("✅ DEV MODE DISABLED via UI - Browser enforcement active")
 
     return {"success": True, "enabled": request.enabled}
+
+
+# Watchdog settings endpoints
+@app.get("/api/settings/watchdog", response_model=WatchdogStatusResponse)
+async def get_watchdog_status():
+    """Get current watchdog status and active processes."""
+    from config import get_config
+    from watchdog import WatchdogManager
+
+    config = get_config()
+    manager = WatchdogManager(
+        watchdog_count=config.security.watchdog_count,
+        daemon_port=config.daemon.port
+    )
+
+    active = manager.get_active_watchdogs()
+
+    return WatchdogStatusResponse(
+        enabled=config.security.watchdog_enabled,
+        count=config.security.watchdog_count,
+        active_watchdogs=active
+    )
+
+
+@app.put("/api/settings/watchdog")
+async def update_watchdog_settings(request: WatchdogUpdateRequest):
+    """Update watchdog settings.
+
+    Blocked if settings are locked.
+    """
+    from config import get_config, save_config, reload_config
+    from watchdog import WatchdogManager, is_settings_locked_ntp
+
+    logger = logging.getLogger(__name__)
+
+    # Check if settings are locked
+    if is_settings_locked_ntp():
+        raise HTTPException(
+            status_code=403,
+            detail="Settings are locked and cannot be changed"
+        )
+
+    config = get_config()
+
+    if request.enabled is not None:
+        old_enabled = config.security.watchdog_enabled
+        config.security.watchdog_enabled = request.enabled
+
+        # If enabling, spawn watchdogs
+        if request.enabled and not old_enabled:
+            manager = WatchdogManager(
+                watchdog_count=config.security.watchdog_count,
+                daemon_port=config.daemon.port
+            )
+            manager.spawn_watchdogs()
+            logger.info("Watchdog processes spawned")
+
+        # If disabling, signal shutdown
+        elif not request.enabled and old_enabled:
+            manager = WatchdogManager(
+                watchdog_count=config.security.watchdog_count,
+                daemon_port=config.daemon.port
+            )
+            manager.signal_shutdown()
+            logger.info("Watchdog shutdown signaled")
+
+    if request.count is not None:
+        # Clamp to valid range
+        config.security.watchdog_count = max(2, min(5, request.count))
+
+    save_config(config)
+    reload_config()
+
+    return {
+        "success": True,
+        "enabled": config.security.watchdog_enabled,
+        "count": config.security.watchdog_count
+    }
+
+
+# Settings lock endpoints
+@app.get("/api/settings/lock", response_model=SettingsLockResponse)
+async def get_settings_lock():
+    """Get current settings lock status."""
+    from config import get_config
+    from watchdog import is_settings_locked_ntp
+    from datetime import datetime, timezone
+
+    config = get_config()
+    lock_until_str = config.security.settings_lock_until
+
+    if not lock_until_str:
+        return SettingsLockResponse(
+            locked=False,
+            lock_until=None,
+            remaining_seconds=None
+        )
+
+    # Check if actually locked (NTP verified)
+    is_locked = is_settings_locked_ntp()
+
+    if not is_locked:
+        return SettingsLockResponse(
+            locked=False,
+            lock_until=lock_until_str,
+            remaining_seconds=0
+        )
+
+    # Calculate remaining time
+    try:
+        lock_until = datetime.fromisoformat(lock_until_str)
+        if lock_until.tzinfo is None:
+            lock_until = lock_until.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        remaining = int((lock_until - now).total_seconds())
+    except Exception:
+        remaining = None
+
+    return SettingsLockResponse(
+        locked=True,
+        lock_until=lock_until_str,
+        remaining_seconds=max(0, remaining) if remaining else None
+    )
+
+
+@app.post("/api/settings/lock")
+async def lock_settings(request: SettingsLockRequest):
+    """Lock settings until a specific datetime.
+
+    Uses NTP verification to prevent clock manipulation.
+    """
+    from config import get_config, save_config, reload_config
+    from time_verifier import get_time_verifier
+    from datetime import datetime, timezone
+
+    logger = logging.getLogger(__name__)
+
+    # Parse and validate lock_until
+    try:
+        lock_until = datetime.fromisoformat(request.lock_until)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid datetime format. Use ISO format like '2024-12-25T14:30:00'"
+        )
+
+    # Ensure it's in the future (use NTP time)
+    verifier = get_time_verifier()
+    if not verifier.is_system_time_valid():
+        raise HTTPException(
+            status_code=403,
+            detail="System time appears to be manipulated. Cannot set lock."
+        )
+
+    now = datetime.now(timezone.utc)
+    if lock_until.tzinfo is None:
+        lock_until = lock_until.replace(tzinfo=timezone.utc)
+
+    if lock_until <= now:
+        raise HTTPException(
+            status_code=400,
+            detail="lock_until must be in the future"
+        )
+
+    # Save the lock
+    config = get_config()
+    config.security.settings_lock_until = lock_until.isoformat()
+    save_config(config)
+    reload_config()
+
+    logger.info(f"Settings locked until {lock_until.isoformat()}")
+
+    return {
+        "success": True,
+        "lock_until": lock_until.isoformat()
+    }
+
+
+@app.delete("/api/settings/lock")
+async def unlock_settings():
+    """Unlock settings.
+
+    Only works if the lock has expired (verified via NTP).
+    """
+    from config import get_config, save_config, reload_config
+    from watchdog import is_settings_locked_ntp
+
+    logger = logging.getLogger(__name__)
+
+    # Check if still locked
+    if is_settings_locked_ntp():
+        raise HTTPException(
+            status_code=403,
+            detail="Settings are still locked. Cannot unlock before expiry."
+        )
+
+    # Clear the lock
+    config = get_config()
+    config.security.settings_lock_until = None
+    save_config(config)
+    reload_config()
+
+    logger.info("Settings lock cleared")
+
+    return {"success": True}
