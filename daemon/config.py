@@ -35,7 +35,7 @@ class SecurityConfig:
     ])
     max_time_diff_seconds: int = 300
     verify_time_on_transitions: bool = True
-    dev_mode: bool = False  # Disable browser enforcement in dev mode
+    browser_enforcement_enabled: bool = True  # Enable browser enforcement
     watchdog_enabled: bool = False  # Enable watchdog processes for resilience
     watchdog_count: int = 3  # Number of watchdog processes (2-5)
     settings_lock_until: Optional[str] = None  # ISO datetime string when settings lock expires
@@ -75,10 +75,20 @@ def load_config() -> Config:
             with open(config_path, 'r') as f:
                 data = json.load(f)
 
+            # Migrate old dev_mode to browser_enforcement_enabled
+            security_data = data.get('security', {})
+            if 'dev_mode' in security_data and 'browser_enforcement_enabled' not in security_data:
+                # Invert: dev_mode=False meant enforcement ON → browser_enforcement_enabled=True
+                security_data['browser_enforcement_enabled'] = not security_data.pop('dev_mode')
+                logger.info("Migrated dev_mode to browser_enforcement_enabled")
+            elif 'dev_mode' in security_data:
+                # Remove old field if both exist
+                del security_data['dev_mode']
+
             config = Config(
                 daemon=DaemonConfig(**data.get('daemon', {})),
                 monitoring=MonitoringConfig(**data.get('monitoring', {})),
-                security=SecurityConfig(**data.get('security', {})),
+                security=SecurityConfig(**security_data),
                 browsers=data.get('browsers', Config().browsers)
             )
             logger.info(f"Loaded configuration from {config_path}")
@@ -90,14 +100,6 @@ def load_config() -> Config:
         config = Config()
         save_config(config)
         logger.info(f"Created default configuration at {config_path}")
-
-    # Check for dev mode environment variable (overrides config file)
-    dev_mode_env = os.getenv('BLOCKER_DEV_MODE', 'false').lower()
-    if dev_mode_env in ('true', '1', 'yes'):
-        config.security.dev_mode = True
-        logger.warning("🚨 DEV MODE ENABLED via environment variable - Browser enforcement disabled!")
-    elif config.security.dev_mode:
-        logger.warning("🚨 DEV MODE ENABLED via config file - Browser enforcement disabled!")
 
     return config
 
@@ -121,7 +123,7 @@ def save_config(config: Config) -> None:
             "ntp_servers": config.security.ntp_servers,
             "max_time_diff_seconds": config.security.max_time_diff_seconds,
             "verify_time_on_transitions": config.security.verify_time_on_transitions,
-            "dev_mode": config.security.dev_mode,
+            "browser_enforcement_enabled": config.security.browser_enforcement_enabled,
             "watchdog_enabled": config.security.watchdog_enabled,
             "watchdog_count": config.security.watchdog_count,
             "settings_lock_until": config.security.settings_lock_until

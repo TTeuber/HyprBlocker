@@ -130,12 +130,12 @@ class GracePeriodResponse(BaseModel):
     remaining_seconds: Optional[int]
 
 
-class DevModeStatusResponse(BaseModel):
+class BrowserEnforcementStatusResponse(BaseModel):
     enabled: bool
-    source: str  # 'environment', 'config', or 'default'
+    source: str  # 'config' or 'default'
 
 
-class DevModeUpdateRequest(BaseModel):
+class BrowserEnforcementUpdateRequest(BaseModel):
     enabled: bool
 
 
@@ -589,59 +589,49 @@ async def get_blocked_sites():
 
 
 # Settings endpoints
-@app.get("/api/settings/dev-mode", response_model=DevModeStatusResponse)
-async def get_dev_mode_status():
-    """Get current dev mode status."""
+@app.get("/api/settings/browser-enforcement", response_model=BrowserEnforcementStatusResponse)
+async def get_browser_enforcement_status():
+    """Get current browser enforcement status."""
     from config import get_config
-    import os
 
     config = get_config()
 
-    # Check if set via environment (takes precedence)
-    dev_mode_env = os.getenv('BLOCKER_DEV_MODE', 'false').lower()
-    if dev_mode_env in ('true', '1', 'yes'):
-        return DevModeStatusResponse(
-            enabled=True,
-            source='environment'
-        )
-
-    return DevModeStatusResponse(
-        enabled=config.security.dev_mode,
-        source='config' if config.security.dev_mode else 'default'
+    return BrowserEnforcementStatusResponse(
+        enabled=config.security.browser_enforcement_enabled,
+        source='config' if config.security.browser_enforcement_enabled != True else 'default'
     )
 
 
-@app.put("/api/settings/dev-mode")
-async def update_dev_mode_status(request: DevModeUpdateRequest):
-    """Update dev mode setting.
+@app.put("/api/settings/browser-enforcement")
+async def update_browser_enforcement_status(request: BrowserEnforcementUpdateRequest):
+    """Update browser enforcement setting.
 
-    Note: This only works if dev mode is not set via environment variable.
+    Blocked if settings are locked.
     """
     from config import get_config, save_config, reload_config
-    import os
+    from watchdog import is_settings_locked_ntp
 
     logger = logging.getLogger(__name__)
 
-    # Check if environment variable is set
-    dev_mode_env = os.getenv('BLOCKER_DEV_MODE', 'false').lower()
-    if dev_mode_env in ('true', '1', 'yes'):
+    # Check if settings are locked
+    if is_settings_locked_ntp():
         raise HTTPException(
             status_code=403,
-            detail="Dev mode is set via environment variable and cannot be changed through the UI"
+            detail="Settings are locked and cannot be changed"
         )
 
     # Update config
     config = get_config()
-    config.security.dev_mode = request.enabled
+    config.security.browser_enforcement_enabled = request.enabled
     save_config(config)
 
     # Reload config to apply changes immediately
     reload_config()
 
     if request.enabled:
-        logger.warning("🚨 DEV MODE ENABLED via UI - Browser enforcement disabled!")
+        logger.info("✅ Browser enforcement ENABLED via UI")
     else:
-        logger.info("✅ DEV MODE DISABLED via UI - Browser enforcement active")
+        logger.warning("🚨 Browser enforcement DISABLED via UI")
 
     return {"success": True, "enabled": request.enabled}
 

@@ -101,18 +101,18 @@ export interface LockStatusResponse {
   locked: boolean;
 }
 
-// Dev mode settings
-export interface DevModeStatus {
+// Browser enforcement settings
+export interface BrowserEnforcementStatus {
   enabled: boolean;
-  source: 'environment' | 'config' | 'default' | 'unknown';
+  source: 'config' | 'default' | 'unknown';
   error?: string;
 }
 
-export interface DevModeUpdateResponse {
+export interface BrowserEnforcementUpdateResponse {
   success: boolean;
   enabled?: boolean;
   error?: string;
-  env_override?: boolean;
+  settingsLocked?: boolean;
 }
 
 // Watchdog status
@@ -177,8 +177,8 @@ declare global {
         is_daemon_running(): Promise<boolean>;
         start_extension_grace_period(): Promise<GracePeriodResponse>;
         get_grace_period_status(): Promise<GracePeriodStatus>;
-        get_dev_mode_status(): Promise<DevModeStatus>;
-        update_dev_mode(enabled: boolean): Promise<DevModeUpdateResponse>;
+        get_browser_enforcement_status(): Promise<BrowserEnforcementStatus>;
+        update_browser_enforcement(enabled: boolean): Promise<BrowserEnforcementUpdateResponse>;
         get_watchdog_status(): Promise<WatchdogStatus>;
         update_watchdog(enabled?: boolean, count?: number): Promise<WatchdogUpdateResponse>;
         get_settings_lock(): Promise<SettingsLockStatus>;

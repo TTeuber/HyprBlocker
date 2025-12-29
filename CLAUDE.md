@@ -111,7 +111,7 @@ timestamp DATETIME
 | `/api/heartbeat`               | POST           | Browser extension heartbeat              |
 | `/api/grace-period`            | GET/POST       | Grace period for extension setup         |
 | `/api/blocked-sites`           | GET            | Current blocked patterns (for extension) |
-| `/api/settings/dev-mode`       | GET/PUT        | Dev mode toggle                          |
+| `/api/settings/browser-enforcement` | GET/PUT   | Browser enforcement toggle               |
 | `/api/settings/watchdog`       | GET/PUT        | Watchdog enable/disable, count           |
 | `/api/settings/lock`           | GET/POST/DELETE| Settings lock (lock-until with NTP)      |
 
@@ -223,7 +223,7 @@ Location: `~/.config/website-blocker/watchdog_state.json`
 ```json
 {
   "security": {
-    "dev_mode": false,
+    "browser_enforcement_enabled": true,
     "watchdog_enabled": false,
     "watchdog_count": 3,
     "settings_lock_until": null

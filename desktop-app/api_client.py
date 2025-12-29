@@ -70,10 +70,10 @@ class GracePeriodStatus:
 
 
 @dataclass
-class DevModeStatus:
-    """Represents dev mode status."""
+class BrowserEnforcementStatus:
+    """Represents browser enforcement status."""
     enabled: bool
-    source: str  # 'environment', 'config', or 'default'
+    source: str  # 'config' or 'default'
 
 
 @dataclass
@@ -314,40 +314,40 @@ class DaemonClient:
             pass
         return None
 
-    def get_dev_mode_status(self) -> Optional[DevModeStatus]:
-        """Get dev mode status.
+    def get_browser_enforcement_status(self) -> Optional[BrowserEnforcementStatus]:
+        """Get browser enforcement status.
 
         Returns:
-            DevModeStatus or None if failed
+            BrowserEnforcementStatus or None if failed
         """
         try:
-            response = self._request('GET', '/api/settings/dev-mode')
+            response = self._request('GET', '/api/settings/browser-enforcement')
             if response.status_code == 200:
-                return DevModeStatus(**response.json())
+                return BrowserEnforcementStatus(**response.json())
         except requests.RequestException:
             pass
         return None
 
-    def update_dev_mode(self, enabled: bool) -> dict:
-        """Update dev mode setting.
+    def update_browser_enforcement(self, enabled: bool) -> dict:
+        """Update browser enforcement setting.
 
         Args:
-            enabled: Whether to enable dev mode
+            enabled: Whether to enable browser enforcement
 
         Returns:
             Dict with success status
 
         Raises:
-            PermissionError: If dev mode is set via environment variable
+            PermissionError: If settings are locked
         """
         try:
-            response = self._request('PUT', '/api/settings/dev-mode', json={'enabled': enabled})
+            response = self._request('PUT', '/api/settings/browser-enforcement', json={'enabled': enabled})
             if response.status_code == 200:
                 return response.json()
             elif response.status_code == 403:
-                raise PermissionError("Dev mode is controlled by environment variable")
+                raise PermissionError("Settings are locked and cannot be changed")
             else:
-                raise Exception(f"Failed to update dev mode: {response.text}")
+                raise Exception(f"Failed to update browser enforcement: {response.text}")
         except requests.RequestException as e:
             raise Exception(f"Request failed: {str(e)}")
 

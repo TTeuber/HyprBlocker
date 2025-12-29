@@ -268,9 +268,9 @@ class HyprlandMonitor:
         Returns:
             Number of browsers closed
         """
-        # Skip enforcement if dev mode is enabled
-        if get_config().security.dev_mode:
-            logger.debug("Dev mode enabled - skipping browser enforcement")
+        # Skip enforcement if browser enforcement is disabled
+        if not get_config().security.browser_enforcement_enabled:
+            logger.debug("Browser enforcement disabled - skipping")
             return 0
 
         tracker = get_heartbeat_tracker()

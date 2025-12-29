@@ -197,37 +197,37 @@ class API:
             }
         return {'active': False}
 
-    def get_dev_mode_status(self) -> dict:
-        """Get dev mode status.
+    def get_browser_enforcement_status(self) -> dict:
+        """Get browser enforcement status.
 
         Returns:
-            dict with dev mode status
+            dict with browser enforcement status
         """
-        status = self.client.get_dev_mode_status()
+        status = self.client.get_browser_enforcement_status()
         if status:
             return {
                 'enabled': status.enabled,
                 'source': status.source
             }
-        return {'enabled': False, 'source': 'unknown', 'error': 'Failed to get dev mode status'}
+        return {'enabled': True, 'source': 'unknown', 'error': 'Failed to get status'}
 
-    def update_dev_mode(self, enabled: bool) -> dict:
-        """Update dev mode setting.
+    def update_browser_enforcement(self, enabled: bool) -> dict:
+        """Update browser enforcement setting.
 
         Args:
-            enabled: Whether to enable dev mode
+            enabled: Whether to enable browser enforcement
 
         Returns:
             dict with success status
         """
         try:
-            result = self.client.update_dev_mode(enabled)
+            result = self.client.update_browser_enforcement(enabled)
             return {'success': True, 'enabled': result.get('enabled', enabled)}
         except PermissionError as e:
             return {
                 'success': False,
                 'error': str(e),
-                'env_override': True
+                'settingsLocked': True
             }
         except Exception as e:
             return {

@@ -9,8 +9,8 @@ import type {
   BrowserStatus,
   GracePeriodResponse,
   GracePeriodStatus,
-  DevModeStatus,
-  DevModeUpdateResponse,
+  BrowserEnforcementStatus,
+  BrowserEnforcementUpdateResponse,
   WatchdogStatus,
   WatchdogUpdateResponse,
   SettingsLockStatus,
@@ -85,14 +85,14 @@ export const api = {
     return window.pywebview.api.get_grace_period_status();
   },
 
-  async getDevModeStatus(): Promise<DevModeStatus> {
+  async getBrowserEnforcementStatus(): Promise<BrowserEnforcementStatus> {
     await waitForPywebview();
-    return window.pywebview.api.get_dev_mode_status();
+    return window.pywebview.api.get_browser_enforcement_status();
   },
 
-  async updateDevMode(enabled: boolean): Promise<DevModeUpdateResponse> {
+  async updateBrowserEnforcement(enabled: boolean): Promise<BrowserEnforcementUpdateResponse> {
     await waitForPywebview();
-    return window.pywebview.api.update_dev_mode(enabled);
+    return window.pywebview.api.update_browser_enforcement(enabled);
   },
 
   async getWatchdogStatus(): Promise<WatchdogStatus> {

@@ -6,7 +6,7 @@ import { Checkbox, Select } from "../components/ui/FormElements";
 import { Button } from "../components/ui/Button";
 import { api } from "../lib/api";
 import type {
-  DevModeStatus,
+  BrowserEnforcementStatus,
   WatchdogStatus,
   SettingsLockStatus,
 } from "../types";
@@ -14,7 +14,7 @@ import type {
 export function Settings() {
   const { status } = useStatus();
   const { showToast } = useToast();
-  const [devModeStatus, setDevModeStatus] = useState<DevModeStatus | null>(
+  const [browserEnforcementStatus, setBrowserEnforcementStatus] = useState<BrowserEnforcementStatus | null>(
     null,
   );
   const [watchdogStatus, setWatchdogStatus] = useState<WatchdogStatus | null>(
@@ -28,48 +28,48 @@ export function Settings() {
 
   // Load all settings on mount
   useEffect(() => {
-    loadDevModeStatus();
+    loadBrowserEnforcementStatus();
     loadWatchdogStatus();
     loadSettingsLock();
   }, []);
 
-  const loadDevModeStatus = async () => {
+  const loadBrowserEnforcementStatus = async () => {
     try {
-      const status = await api.getDevModeStatus();
-      setDevModeStatus(status);
+      const status = await api.getBrowserEnforcementStatus();
+      setBrowserEnforcementStatus(status);
     } catch (error) {
-      console.error("Failed to load dev mode status:", error);
+      console.error("Failed to load browser enforcement status:", error);
       showToast("Failed to load settings", "error");
     }
   };
 
-  const handleDevModeToggle = async (enabled: boolean) => {
+  const handleBrowserEnforcementToggle = async (enabled: boolean) => {
     setUpdating(true);
     try {
-      const result = await api.updateDevMode(enabled);
+      const result = await api.updateBrowserEnforcement(enabled);
 
       if (result.success) {
         showToast(
           enabled
-            ? "Browser enforcement disabled"
-            : "Browser enforcement enabled",
+            ? "Browser enforcement enabled"
+            : "Browser enforcement disabled",
           "success",
         );
-        await loadDevModeStatus();
-      } else if (result.env_override) {
+        await loadBrowserEnforcementStatus();
+      } else if (result.settingsLocked) {
         showToast(
-          "Dev mode is controlled by environment variable and cannot be changed",
+          "Settings are locked and cannot be changed",
           "warning",
         );
-        await loadDevModeStatus();
+        await loadBrowserEnforcementStatus();
       } else {
         showToast(result.error || "Failed to update setting", "error");
-        await loadDevModeStatus();
+        await loadBrowserEnforcementStatus();
       }
     } catch (error) {
-      console.error("Failed to update dev mode:", error);
+      console.error("Failed to update browser enforcement:", error);
       showToast("Failed to update setting", "error");
-      await loadDevModeStatus();
+      await loadBrowserEnforcementStatus();
     } finally {
       setUpdating(false);
     }
@@ -233,20 +233,18 @@ export function Settings() {
         <Card title="Browser Enforcement">
           <div className="py-3">
             <Checkbox
-              label="Disable browser enforcement"
-              checked={devModeStatus?.enabled ?? false}
-              onChange={(e) => handleDevModeToggle(e.target.checked)}
-              disabled={updating || devModeStatus?.source === "environment"}
+              label="Enable browser enforcement"
+              checked={browserEnforcementStatus?.enabled ?? true}
+              onChange={(e) => handleBrowserEnforcementToggle(e.target.checked)}
+              disabled={updating || isSettingsLocked}
             />
             <p className="text-xs text-text-secondary mt-2">
-              When enabled, browsers will not be killed for missing extensions.
-              Useful for testing or if you don't want browser enforcement.
+              When enabled, browsers without the extension installed will be closed.
+              Disable this if you don't want browser enforcement.
             </p>
-            {devModeStatus?.source === "environment" && (
+            {isSettingsLocked && (
               <p className="text-xs text-yellow-500 mt-2">
-                ⚠️ This setting is controlled by the BLOCKER_DEV_MODE
-                environment variable and cannot be changed through the UI.
-                Remove the systemd override file to use the UI toggle.
+                Settings are locked and cannot be changed.
               </p>
             )}
           </div>
