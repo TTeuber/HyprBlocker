@@ -37,6 +37,7 @@ class SecurityConfig:
     verify_time_on_transitions: bool = True
     browser_enforcement_enabled: bool = True  # Enable browser enforcement
     safe_search_enabled: bool = False  # Enable safe search enforcement on search engines
+    shutdown_prevention_enabled: bool = False  # Prevent daemon from being stopped via SIGTERM
     watchdog_enabled: bool = False  # Enable watchdog processes for resilience
     watchdog_count: int = 3  # Number of watchdog processes (2-5)
     settings_lock_until: Optional[str] = None  # ISO datetime string when settings lock expires
@@ -126,6 +127,7 @@ def save_config(config: Config) -> None:
             "verify_time_on_transitions": config.security.verify_time_on_transitions,
             "browser_enforcement_enabled": config.security.browser_enforcement_enabled,
             "safe_search_enabled": config.security.safe_search_enabled,
+            "shutdown_prevention_enabled": config.security.shutdown_prevention_enabled,
             "watchdog_enabled": config.security.watchdog_enabled,
             "watchdog_count": config.security.watchdog_count,
             "settings_lock_until": config.security.settings_lock_until

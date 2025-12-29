@@ -8,6 +8,7 @@ import { api } from "../lib/api";
 import type {
   BrowserEnforcementStatus,
   SafeSearchStatus,
+  ShutdownPreventionStatus,
   WatchdogStatus,
   SettingsLockStatus,
 } from "../types";
@@ -19,6 +20,9 @@ export function Settings() {
     null,
   );
   const [safeSearchStatus, setSafeSearchStatus] = useState<SafeSearchStatus | null>(
+    null,
+  );
+  const [shutdownPreventionStatus, setShutdownPreventionStatus] = useState<ShutdownPreventionStatus | null>(
     null,
   );
   const [watchdogStatus, setWatchdogStatus] = useState<WatchdogStatus | null>(
@@ -34,6 +38,7 @@ export function Settings() {
   useEffect(() => {
     loadBrowserEnforcementStatus();
     loadSafeSearchStatus();
+    loadShutdownPreventionStatus();
     loadWatchdogStatus();
     loadSettingsLock();
   }, []);
@@ -117,6 +122,45 @@ export function Settings() {
       console.error("Failed to update safe search:", error);
       showToast("Failed to update setting", "error");
       await loadSafeSearchStatus();
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const loadShutdownPreventionStatus = async () => {
+    try {
+      const status = await api.getShutdownPreventionStatus();
+      setShutdownPreventionStatus(status);
+    } catch (error) {
+      console.error("Failed to load shutdown prevention status:", error);
+    }
+  };
+
+  const handleShutdownPreventionToggle = async (enabled: boolean) => {
+    setUpdating(true);
+    try {
+      const result = await api.updateShutdownPrevention(enabled);
+
+      if (result.success) {
+        showToast(
+          enabled
+            ? "Shutdown prevention enabled"
+            : "Shutdown prevention disabled",
+          "success",
+        );
+        await loadShutdownPreventionStatus();
+        // Also reload watchdog status since disabling shutdown prevention disables watchdogs
+        if (!enabled) {
+          await loadWatchdogStatus();
+        }
+      } else if (result.settingsLocked) {
+        showToast("Settings are locked and cannot be changed", "warning");
+      } else {
+        showToast(result.error || "Failed to update setting", "error");
+      }
+    } catch (error) {
+      console.error("Failed to update shutdown prevention:", error);
+      showToast("Failed to update setting", "error");
     } finally {
       setUpdating(false);
     }
@@ -330,20 +374,34 @@ export function Settings() {
           </div>
         </Card>
 
-        <Card title="Watchdog Protection">
+        <Card title="Protection">
           <div className="py-3">
             <Checkbox
-              label="Enable watchdog processes"
-              checked={watchdogStatus?.enabled ?? false}
-              onChange={(e) => handleWatchdogToggle(e.target.checked)}
+              label="Shutdown Prevention"
+              checked={shutdownPreventionStatus?.enabled ?? false}
+              onChange={(e) => handleShutdownPreventionToggle(e.target.checked)}
               disabled={updating || isSettingsLocked}
             />
-            <p className="text-xs text-text-secondary mt-2">
-              Watchdog processes monitor the daemon and restart it if stopped.
-              Uses obfuscated process names for resilience.
+            <p className="text-xs text-text-secondary mt-2 mb-4">
+              Prevents the daemon from being stopped via SIGTERM signals.
             </p>
 
-            {watchdogStatus?.enabled && (
+            <Checkbox
+              label="Watchdog Protection"
+              checked={watchdogStatus?.enabled ?? false}
+              onChange={(e) => handleWatchdogToggle(e.target.checked)}
+              disabled={updating || isSettingsLocked || !(shutdownPreventionStatus?.enabled)}
+            />
+            <p className="text-xs text-text-secondary mt-2">
+              Spawns monitor processes that restart the daemon if killed.
+              {!(shutdownPreventionStatus?.enabled) && (
+                <span className="text-text-secondary block mt-1">
+                  (Requires Shutdown Prevention to be enabled)
+                </span>
+              )}
+            </p>
+
+            {shutdownPreventionStatus?.enabled && watchdogStatus?.enabled && (
               <div className="mt-4">
                 <label className="block text-sm text-text-secondary mb-2">
                   Number of watchdogs

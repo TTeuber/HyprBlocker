@@ -41,8 +41,6 @@ export interface BlockInput {
 // Daemon status
 export interface DaemonStatus {
   running: boolean;
-  locked: boolean;
-  lock_end_time: string | null;
   active_rules: number;
   active_blocks: number;
   browsers_detected: number;
@@ -129,6 +127,20 @@ export interface SafeSearchUpdateResponse {
   settingsLocked?: boolean;
 }
 
+// Shutdown prevention settings
+export interface ShutdownPreventionStatus {
+  enabled: boolean;
+  source: 'config' | 'default' | 'unknown';
+  error?: string;
+}
+
+export interface ShutdownPreventionUpdateResponse {
+  success: boolean;
+  enabled?: boolean;
+  error?: string;
+  settingsLocked?: boolean;
+}
+
 // Watchdog status
 export interface WatchdogStatus {
   enabled: boolean;
@@ -195,6 +207,8 @@ declare global {
         update_browser_enforcement(enabled: boolean): Promise<BrowserEnforcementUpdateResponse>;
         get_safe_search_status(): Promise<SafeSearchStatus>;
         update_safe_search(enabled: boolean): Promise<SafeSearchUpdateResponse>;
+        get_shutdown_prevention_status(): Promise<ShutdownPreventionStatus>;
+        update_shutdown_prevention(enabled: boolean): Promise<ShutdownPreventionUpdateResponse>;
         get_watchdog_status(): Promise<WatchdogStatus>;
         update_watchdog(enabled?: boolean, count?: number): Promise<WatchdogUpdateResponse>;
         get_settings_lock(): Promise<SettingsLockStatus>;

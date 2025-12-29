@@ -13,6 +13,8 @@ import type {
   BrowserEnforcementUpdateResponse,
   SafeSearchStatus,
   SafeSearchUpdateResponse,
+  ShutdownPreventionStatus,
+  ShutdownPreventionUpdateResponse,
   WatchdogStatus,
   WatchdogUpdateResponse,
   SettingsLockStatus,
@@ -130,6 +132,16 @@ export const api = {
   async unlockSettings(): Promise<SettingsLockResponse> {
     await waitForPywebview();
     return window.pywebview.api.unlock_settings();
+  },
+
+  async getShutdownPreventionStatus(): Promise<ShutdownPreventionStatus> {
+    await waitForPywebview();
+    return window.pywebview.api.get_shutdown_prevention_status();
+  },
+
+  async updateShutdownPrevention(enabled: boolean): Promise<ShutdownPreventionUpdateResponse> {
+    await waitForPywebview();
+    return window.pywebview.api.update_shutdown_prevention(enabled);
   },
 };
 

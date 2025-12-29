@@ -13,6 +13,8 @@ from ..schemas import (
     BrowserEnforcementUpdateRequest,
     SafeSearchStatusResponse,
     SafeSearchUpdateRequest,
+    ShutdownPreventionStatusResponse,
+    ShutdownPreventionUpdateRequest,
     WatchdogStatusResponse,
     WatchdogUpdateRequest,
     SettingsLockResponse,
@@ -105,6 +107,57 @@ async def update_safe_search_status(request: SafeSearchUpdateRequest):
     return {"success": True, "enabled": request.enabled}
 
 
+# Shutdown prevention endpoints
+@router.get("/shutdown-prevention", response_model=ShutdownPreventionStatusResponse)
+async def get_shutdown_prevention_status():
+    """Get current shutdown prevention status."""
+    config = get_config()
+
+    return ShutdownPreventionStatusResponse(
+        enabled=config.security.shutdown_prevention_enabled,
+        source='config' if config.security.shutdown_prevention_enabled != False else 'default'
+    )
+
+
+@router.put("/shutdown-prevention")
+async def update_shutdown_prevention_status(request: ShutdownPreventionUpdateRequest):
+    """Update shutdown prevention setting.
+
+    Blocked if settings are locked.
+    If disabling, also disables and stops watchdogs.
+    """
+    # Check if settings are locked
+    if is_settings_locked_ntp():
+        raise HTTPException(
+            status_code=403,
+            detail="Settings are locked and cannot be changed"
+        )
+
+    config = get_config()
+    old_enabled = config.security.shutdown_prevention_enabled
+    config.security.shutdown_prevention_enabled = request.enabled
+
+    # If disabling shutdown prevention, also disable watchdogs
+    if not request.enabled and config.security.watchdog_enabled:
+        config.security.watchdog_enabled = False
+        manager = WatchdogManager(
+            watchdog_count=config.security.watchdog_count,
+            daemon_port=config.daemon.port
+        )
+        manager.signal_shutdown()
+        logger.info("Watchdog processes stopped (shutdown prevention disabled)")
+
+    save_config(config)
+    reload_config()
+
+    if request.enabled:
+        logger.info("Shutdown prevention ENABLED via UI")
+    else:
+        logger.warning("Shutdown prevention DISABLED via UI")
+
+    return {"success": True, "enabled": request.enabled}
+
+
 # Watchdog endpoints
 @router.get("/watchdog", response_model=WatchdogStatusResponse)
 async def get_watchdog_status():
@@ -129,6 +182,7 @@ async def update_watchdog_settings(request: WatchdogUpdateRequest):
     """Update watchdog settings.
 
     Blocked if settings are locked.
+    Cannot enable watchdogs if shutdown prevention is disabled.
     """
     # Check if settings are locked
     if is_settings_locked_ntp():
@@ -140,6 +194,13 @@ async def update_watchdog_settings(request: WatchdogUpdateRequest):
     config = get_config()
 
     if request.enabled is not None:
+        # Cannot enable watchdogs if shutdown prevention is disabled
+        if request.enabled and not config.security.shutdown_prevention_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot enable watchdogs when shutdown prevention is disabled"
+            )
+
         old_enabled = config.security.watchdog_enabled
         config.security.watchdog_enabled = request.enabled
 

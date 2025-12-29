@@ -56,7 +56,7 @@ logger = setup_logging()
 _scheduler: AsyncIOScheduler = None
 _session_factory = None
 _shutdown_event = asyncio.Event()
-_is_locked_cache: bool = False  # Cached lock state for signal handler
+_shutdown_prevention_cache: bool = False  # Cached shutdown prevention state for signal handler
 _watchdog_manager: WatchdogManager = None  # Watchdog manager instance
 
 
@@ -69,7 +69,7 @@ async def get_all_blocks() -> List[Block]:
 
 async def schedule_check_job():
     """Job that runs periodically to check schedules."""
-    global _is_locked_cache
+    global _shutdown_prevention_cache
     try:
         scheduler = get_scheduler()
         if scheduler:
@@ -78,8 +78,10 @@ async def schedule_check_job():
         lock_manager = get_lock_manager()
         if lock_manager:
             await lock_manager.check_transitions()
-            # Update cached lock state for signal handler
-            _is_locked_cache = await lock_manager.is_locked()
+
+        # Update cached shutdown prevention state for signal handler
+        config = get_config()
+        _shutdown_prevention_cache = config.security.shutdown_prevention_enabled
 
     except Exception as e:
         logger.error(f"Error in schedule check job: {e}")
@@ -102,15 +104,15 @@ async def monitor_check_job():
 
 def handle_signal(signum, frame):
     """Handle termination signals."""
-    global _is_locked_cache
+    global _shutdown_prevention_cache
 
-    # Use cached lock state to avoid async issues in signal handler
-    if _is_locked_cache:
-        logger.warning("Ignoring stop signal during lock period")
+    # Use cached shutdown prevention state to avoid async issues in signal handler
+    if _shutdown_prevention_cache:
+        logger.warning("Ignoring stop signal - shutdown prevention is active")
         try:
             import subprocess
             subprocess.run(
-                ["notify-send", "Website Blocker", "Cannot stop daemon during locked period"],
+                ["notify-send", "Website Blocker", "Cannot stop daemon - shutdown prevention is active"],
                 capture_output=True,
                 timeout=5
             )
@@ -165,8 +167,8 @@ async def lifespan(app):
     _scheduler.start()
     logger.info("Scheduler started")
 
-    # Spawn watchdog processes if enabled
-    if config.security.watchdog_enabled:
+    # Spawn watchdog processes if both shutdown prevention AND watchdog are enabled
+    if config.security.shutdown_prevention_enabled and config.security.watchdog_enabled:
         _watchdog_manager = WatchdogManager(
             watchdog_count=config.security.watchdog_count,
             daemon_port=config.daemon.port

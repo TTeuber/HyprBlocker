@@ -37,7 +37,7 @@ export function StatusProvider({ children }: { children: ReactNode }) {
       setStatus(data);
     } catch (error) {
       console.error('Failed to refresh status:', error);
-      setStatus({ running: false, locked: false, lock_end_time: null, active_rules: 0, active_blocks: 0, browsers_detected: 0, browsers_compliant: 0 });
+      setStatus({ running: false, active_rules: 0, active_blocks: 0, browsers_detected: 0, browsers_compliant: 0 });
     }
   }, []);
 

@@ -35,7 +35,7 @@ Desktop App + Browser Extension
 - `scheduler.py` - Block schedule checking and activation
 - `hyprland_monitor.py` - Window monitoring and app closing via Hyprland IPC
 - `heartbeat_tracker.py` - Browser compliance tracking
-- `lock_manager.py` - Lock mode enforcement (per-block)
+- `lock_manager.py` - Per-block lock mode enforcement
 - `time_verifier.py` - NTP time verification
 - `database.py` - SQLAlchemy ORM models
 - `config.py` - Configuration management
@@ -111,7 +111,7 @@ timestamp DATETIME
 
 | Endpoint                       | Method         | Purpose                                  |
 | ------------------------------ | -------------- | ---------------------------------------- |
-| `/api/status`                  | GET            | Daemon status, active blocks, lock state |
+| `/api/status`                  | GET            | Daemon status, active blocks             |
 | `/api/blocks`                  | GET/POST       | List/create blocks                       |
 | `/api/blocks/{id}`             | PUT/DELETE     | Update/delete block                      |
 | `/api/blocks/{id}/lock-status` | GET            | Check if block is locked                 |
@@ -122,6 +122,7 @@ timestamp DATETIME
 | `/api/blocked-sites`           | GET            | Current blocked patterns (for extension) |
 | `/api/settings/browser-enforcement` | GET/PUT   | Browser enforcement toggle               |
 | `/api/settings/safe-search`    | GET/PUT        | Safe search enforcement toggle           |
+| `/api/settings/shutdown-prevention` | GET/PUT   | Shutdown prevention toggle               |
 | `/api/settings/watchdog`       | GET/PUT        | Watchdog enable/disable, count           |
 | `/api/settings/lock`           | GET/POST/DELETE| Settings lock (lock-until with NTP)      |
 
@@ -155,15 +156,15 @@ timestamp DATETIME
 
 ## Security Features
 
-- **Lock mode**: Prevents configuration changes when active (per-block)
+- **Per-block lock mode**: Prevents modifications to a specific block when active
 - **Settings lock**: Prevents all settings changes until expiry (with NTP verification)
-- **Signal handling**: Daemon refuses SIGTERM during lock
+- **Shutdown prevention**: Daemon refuses SIGTERM signals when enabled
 - **NTP verification**: Prevents clock manipulation
 - **Fail-safe design**: Errors result in blocking (not allowing)
 - **Browser enforcement**: Force-close browsers if extension stops responding
 - **Safe search enforcement**: Forces strict safe search on Google, Bing, and DuckDuckGo
 - **Incognito detection**: Extension reports incognito status
-- **Watchdog system**: Independent processes restart daemon if killed
+- **Watchdog system**: Independent processes restart daemon if killed (requires shutdown prevention)
 
 ## Safe Search Enforcement
 
@@ -215,13 +216,14 @@ The watchdog system provides daemon resilience by spawning independent processes
 
 ### How it works
 
-1. When enabled, daemon spawns N watchdog processes (configurable 2-5, default 3)
-2. Each watchdog monitors:
+1. Watchdog requires **both** shutdown prevention AND watchdog to be enabled
+2. When enabled, daemon spawns N watchdog processes (configurable 2-5, default 3)
+3. Each watchdog monitors:
    - Daemon health (HTTP check every 5 seconds)
    - Sibling watchdog processes (PID check every 10 seconds)
-3. If daemon dies → watchdog restarts via `systemctl --user restart website-blocker`
-4. If sibling dies → remaining watchdogs respawn it
-5. Watchdogs use obfuscated process names for resilience
+4. If daemon dies → watchdog restarts via `systemctl --user restart website-blocker`
+5. If sibling dies → remaining watchdogs respawn it
+6. Watchdogs use obfuscated process names for resilience
 
 ### State File
 
@@ -239,11 +241,12 @@ Location: `~/.config/website-blocker/watchdog_state.json`
 }
 ```
 
-### Settings Lock Integration
+### Shutdown Prevention Integration
 
-- When settings are locked, watchdogs ignore shutdown signals
-- Watchdogs verify lock status via NTP time to prevent clock manipulation
-- This ensures daemon stays running even if user tries to stop it during lock
+- Watchdog toggle is disabled in UI if shutdown prevention is off
+- Disabling shutdown prevention automatically disables watchdog
+- When settings are locked, both toggles cannot be changed
+- This pairing ensures watchdogs only run when daemon shutdown protection is needed
 
 ## Data Flow
 
@@ -281,6 +284,7 @@ Location: `~/.config/website-blocker/watchdog_state.json`
   "security": {
     "browser_enforcement_enabled": true,
     "safe_search_enabled": false,
+    "shutdown_prevention_enabled": false,
     "watchdog_enabled": false,
     "watchdog_count": 3,
     "settings_lock_until": null

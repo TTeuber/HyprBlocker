@@ -24,8 +24,6 @@ class API:
         if status:
             return {
                 'running': status.running,
-                'locked': status.locked,
-                'lock_end_time': status.lock_end_time,
                 'active_rules': status.active_rules,
                 'active_blocks': status.active_blocks,
                 'browsers_detected': status.browsers_detected,
@@ -260,6 +258,44 @@ class API:
         """
         try:
             result = self.client.update_safe_search(enabled)
+            return {'success': True, 'enabled': result.get('enabled', enabled)}
+        except PermissionError as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'settingsLocked': True
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def get_shutdown_prevention_status(self) -> dict:
+        """Get shutdown prevention status.
+
+        Returns:
+            dict with shutdown prevention status
+        """
+        status = self.client.get_shutdown_prevention_status()
+        if status:
+            return {
+                'enabled': status.enabled,
+                'source': status.source
+            }
+        return {'enabled': False, 'source': 'unknown', 'error': 'Failed to get status'}
+
+    def update_shutdown_prevention(self, enabled: bool) -> dict:
+        """Update shutdown prevention setting.
+
+        Args:
+            enabled: Whether to enable shutdown prevention
+
+        Returns:
+            dict with success status
+        """
+        try:
+            result = self.client.update_shutdown_prevention(enabled)
             return {'success': True, 'enabled': result.get('enabled', enabled)}
         except PermissionError as e:
             return {

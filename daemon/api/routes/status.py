@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Block, BlockEvent
 from heartbeat_tracker import get_heartbeat_tracker
-from lock_manager import get_lock_manager
 from ..schemas import StatusResponse, StatsResponse, BrowserStatus
 from ..deps import get_session
 
@@ -18,14 +17,8 @@ router = APIRouter(prefix="/api", tags=["status"])
 
 @router.get("/status", response_model=StatusResponse)
 async def get_status(session: AsyncSession = Depends(get_session)):
-    """Get daemon status and lock state."""
-    lock_manager = get_lock_manager()
+    """Get daemon status."""
     tracker = get_heartbeat_tracker()
-
-    lock_status = await lock_manager.get_lock_status() if lock_manager else {
-        "locked": False,
-        "lock_end_time": None
-    }
 
     # Count active blocks
     result = await session.execute(
@@ -39,8 +32,6 @@ async def get_status(session: AsyncSession = Depends(get_session)):
 
     return StatusResponse(
         running=True,
-        locked=lock_status["locked"],
-        lock_end_time=lock_status.get("lock_end_time"),
         active_rules=0,  # Legacy field, no longer used
         active_blocks=active_blocks,
         browsers_detected=browsers_detected,

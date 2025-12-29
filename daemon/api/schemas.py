@@ -79,8 +79,6 @@ class BlockResponse(BaseModel):
 
 class StatusResponse(BaseModel):
     running: bool
-    locked: bool
-    lock_end_time: Optional[str]
     active_rules: int
     active_blocks: int
     browsers_detected: int
@@ -126,6 +124,15 @@ class SafeSearchStatusResponse(BaseModel):
 
 
 class SafeSearchUpdateRequest(BaseModel):
+    enabled: bool
+
+
+class ShutdownPreventionStatusResponse(BaseModel):
+    enabled: bool
+    source: str  # 'config' or 'default'
+
+
+class ShutdownPreventionUpdateRequest(BaseModel):
     enabled: bool
 
 

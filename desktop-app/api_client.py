@@ -31,8 +31,6 @@ class Block:
 class DaemonStatus:
     """Represents the daemon status."""
     running: bool
-    locked: bool
-    lock_end_time: Optional[str]
     active_rules: int
     active_blocks: int
     browsers_detected: int
@@ -79,6 +77,13 @@ class BrowserEnforcementStatus:
 @dataclass
 class SafeSearchStatus:
     """Represents safe search enforcement status."""
+    enabled: bool
+    source: str  # 'config' or 'default'
+
+
+@dataclass
+class ShutdownPreventionStatus:
+    """Represents shutdown prevention status."""
     enabled: bool
     source: str  # 'config' or 'default'
 
@@ -392,6 +397,43 @@ class DaemonClient:
                 raise PermissionError("Settings are locked and cannot be changed")
             else:
                 raise Exception(f"Failed to update safe search: {response.text}")
+        except requests.RequestException as e:
+            raise Exception(f"Request failed: {str(e)}")
+
+    def get_shutdown_prevention_status(self) -> Optional[ShutdownPreventionStatus]:
+        """Get shutdown prevention status.
+
+        Returns:
+            ShutdownPreventionStatus or None if failed
+        """
+        try:
+            response = self._request('GET', '/api/settings/shutdown-prevention')
+            if response.status_code == 200:
+                return ShutdownPreventionStatus(**response.json())
+        except requests.RequestException:
+            pass
+        return None
+
+    def update_shutdown_prevention(self, enabled: bool) -> dict:
+        """Update shutdown prevention setting.
+
+        Args:
+            enabled: Whether to enable shutdown prevention
+
+        Returns:
+            Dict with success status
+
+        Raises:
+            PermissionError: If settings are locked
+        """
+        try:
+            response = self._request('PUT', '/api/settings/shutdown-prevention', json={'enabled': enabled})
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 403:
+                raise PermissionError("Settings are locked and cannot be changed")
+            else:
+                raise Exception(f"Failed to update shutdown prevention: {response.text}")
         except requests.RequestException as e:
             raise Exception(f"Request failed: {str(e)}")
 

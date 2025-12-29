@@ -4,7 +4,6 @@ from datetime import datetime, time as dt_time, timedelta
 from typing import List, Optional
 import json
 import logging
-import subprocess
 import sys
 import os
 
@@ -36,8 +35,6 @@ class LockManager:
         self._get_blocks = get_blocks_func
         self._session_factory = session_factory
         self._time_verifier = get_time_verifier()
-        self._was_locked = False
-        self._lock_end_time: Optional[datetime] = None
 
     def _parse_time(self, time_str: str) -> dt_time:
         """Parse a time string like '09:00' into a time object."""
@@ -141,28 +138,6 @@ class LockManager:
 
         return None
 
-    async def is_locked(self) -> bool:
-        """Check if currently in a locked period.
-
-        Returns:
-            bool: True if locked, False otherwise
-        """
-        now = self._time_verifier.get_verified_time()
-        blocks = await self._get_blocks()
-
-        for block in blocks:
-            if self._is_block_locked(block, now):
-                # Update lock end time
-                unlock_time = self._get_next_unlock_time(block, now)
-                if unlock_time:
-                    if self._lock_end_time is None or unlock_time > self._lock_end_time:
-                        self._lock_end_time = unlock_time
-
-                return True
-
-        self._lock_end_time = None
-        return False
-
     async def is_block_locked(self, block_id: int) -> bool:
         """Check if a specific block is currently locked.
 
@@ -204,34 +179,6 @@ class LockManager:
 
         return locked_block_ids
 
-    async def get_lock_status(self) -> dict:
-        """Get detailed lock status.
-
-        Returns:
-            dict with locked state, end time, and active blocks
-        """
-        now = self._time_verifier.get_verified_time()
-        blocks = await self._get_blocks()
-        locked_blocks = []
-        earliest_end = None
-
-        for block in blocks:
-            if self._is_block_locked(block, now):
-                locked_blocks.append(block.name)
-                unlock_time = self._get_next_unlock_time(block, now)
-                if unlock_time:
-                    if earliest_end is None or unlock_time < earliest_end:
-                        earliest_end = unlock_time
-
-        is_locked = len(locked_blocks) > 0
-
-        return {
-            "locked": is_locked,
-            "lock_end_time": earliest_end.isoformat() if earliest_end else None,
-            "locked_blocks": locked_blocks,
-            "remaining_seconds": int((earliest_end - now).total_seconds()) if earliest_end else None
-        }
-
     async def _reset_expired_locked_until_blocks(self, now: datetime) -> None:
         """Reset lock_mode to 'none' for blocks with expired lock_until.
 
@@ -264,67 +211,10 @@ class LockManager:
         except Exception as e:
             logger.error(f"Failed to reset expired locked_until blocks: {e}")
 
-    async def handle_lock_transition(self, entering_lock: bool) -> None:
-        """Handle transition into or out of lock mode.
-
-        Args:
-            entering_lock: True if entering lock, False if exiting
-        """
-        if entering_lock:
-            # Verify time with NTP before entering lock
-            if not self._time_verifier.verify_at_lock_transitions():
-                logger.warning("Time verification failed when entering lock - locking anyway (fail-safe)")
-
-            self._show_notification(
-                "Website Blocker",
-                "Lock mode activated. Configuration is now read-only."
-            )
-            logger.info("Entered lock mode")
-
-        else:
-            # Verify time with NTP before exiting lock
-            if not self._time_verifier.verify_at_lock_transitions():
-                logger.warning("Time verification failed when exiting lock - may be manipulation attempt")
-                # Don't exit lock if time seems manipulated
-                return
-
-            self._show_notification(
-                "Website Blocker",
-                "Lock mode ended. Configuration can now be modified."
-            )
-            logger.info("Exited lock mode")
-
     async def check_transitions(self) -> None:
-        """Check for lock state transitions and handle them."""
-        # First, reset any expired locked_until blocks
+        """Check for lock state transitions and reset expired locks."""
         now = self._time_verifier.get_verified_time()
         await self._reset_expired_locked_until_blocks(now)
-
-        # Then check current lock status
-        is_locked = await self.is_locked()
-
-        if is_locked and not self._was_locked:
-            await self.handle_lock_transition(entering_lock=True)
-        elif not is_locked and self._was_locked:
-            await self.handle_lock_transition(entering_lock=False)
-
-        self._was_locked = is_locked
-
-    def _show_notification(self, title: str, message: str) -> None:
-        """Show a desktop notification.
-
-        Args:
-            title: Notification title
-            message: Notification message
-        """
-        try:
-            subprocess.run(
-                ["notify-send", title, message],
-                capture_output=True,
-                timeout=5
-            )
-        except (subprocess.SubprocessError, FileNotFoundError) as e:
-            logger.warning(f"Failed to show notification: {e}")
 
 
 # Global lock manager instance
