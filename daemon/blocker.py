@@ -223,11 +223,9 @@ class AppBlocker:
         return False  # Not in any list, don't block
 
     async def is_app_blocked(self, app_class: str) -> bool:
-        """Check if an application is blocked using intersection-based allow logic.
+        """Check if an application is blocked.
 
-        An app is allowed only if:
-        1. No active blocks would block it, OR
-        2. It appears in the allow list of EVERY block that would block it
+        An app is blocked if ANY active block has it in apps_blocked.
 
         Args:
             app_class: The application window class
@@ -241,41 +239,15 @@ class AppBlocker:
 
         active_blocks = await scheduler.get_active_blocks()
 
-        # Find all blocks that would block this app (ignoring allow lists)
-        blocking_blocks = []
-
         for block in active_blocks:
             blocked_patterns = parse_rules_from_text(block.apps_blocked)
 
-            # Check if this block's block patterns match the app
             for pattern in blocked_patterns:
                 if self.matches_pattern(app_class, pattern):
-                    blocking_blocks.append(block)
-                    break  # This block would block it, move to next block
+                    logger.debug(f"App {app_class} blocked by block {block.id} ({block.name})")
+                    return True
 
-        # If no blocks would block this app, it's allowed
-        if not blocking_blocks:
-            logger.debug(f"App {app_class} not blocked by any block")
-            return False
-
-        # Check if app is in the allow list of EVERY blocking block
-        for block in blocking_blocks:
-            allowed_patterns = parse_rules_from_text(block.apps_allowed)
-
-            # Check if this block's allow list contains the app
-            app_allowed_by_this_block = False
-            for pattern in allowed_patterns:
-                if self.matches_pattern(app_class, pattern):
-                    app_allowed_by_this_block = True
-                    break
-
-            # If this blocking block doesn't allow the app, it's blocked
-            if not app_allowed_by_this_block:
-                logger.debug(f"App {app_class} blocked by block {block.id} ({block.name}) - not in allow list")
-                return True
-
-        # App is in the allow list of ALL blocking blocks
-        logger.debug(f"App {app_class} allowed by all {len(blocking_blocks)} blocking blocks")
+        logger.debug(f"App {app_class} not blocked by any block")
         return False
 
     async def get_blocked_apps(self) -> List[str]:

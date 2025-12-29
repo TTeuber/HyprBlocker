@@ -42,16 +42,12 @@ class API:
             'block_start_time': b.block_start_time,
             'block_end_time': b.block_end_time,
             'lock_mode': b.lock_mode,
-            'lock_days_of_week': b.lock_days_of_week,
-            'lock_start_time': b.lock_start_time,
-            'lock_end_time': b.lock_end_time,
             'lock_until': b.lock_until,
             'enabled': b.enabled,
             'created_at': b.created_at,
             'websites_blocked': b.websites_blocked,
             'websites_allowed': b.websites_allowed,
-            'apps_blocked': b.apps_blocked,
-            'apps_allowed': b.apps_allowed
+            'apps_blocked': b.apps_blocked
         } for b in blocks]
 
     def add_block(self, data: dict) -> dict:
@@ -114,6 +110,24 @@ class API:
         except Exception as e:
             print(f"Error checking block lock status: {e}")
             return {'locked': False}
+
+    def update_block_strict(self, block_id: int, updates: dict) -> dict:
+        """Update a block with stricter rules only (allowed even when locked).
+
+        Args:
+            block_id: Block ID to update
+            updates: Strict update fields
+
+        Returns:
+            dict with success status
+        """
+        try:
+            block = self.client.update_block_strict(block_id, **updates)
+            if block:
+                return {'success': True}
+            return {'success': False, 'error': 'Failed to update block'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
 
     def get_stats(self) -> dict:
         """Get blocking statistics."""

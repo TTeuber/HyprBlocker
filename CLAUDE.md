@@ -74,17 +74,13 @@ block_start_time TIME
 block_end_time TIME
 
 -- Lock schedule (per-block)
-lock_mode TEXT CHECK(lock_mode IN ('none', 'time_range', 'locked_until'))
-lock_days_of_week TEXT
-lock_start_time TIME
-lock_end_time TIME
+lock_mode TEXT CHECK(lock_mode IN ('none', 'locked_until'))
 lock_until DATETIME
 
 -- Rules (newline-separated text)
 websites_blocked TEXT
 websites_allowed TEXT
 apps_blocked TEXT
-apps_allowed TEXT
 ```
 
 ### block_events table
@@ -114,6 +110,7 @@ timestamp DATETIME
 | `/api/status`                  | GET            | Daemon status, active blocks             |
 | `/api/blocks`                  | GET/POST       | List/create blocks                       |
 | `/api/blocks/{id}`             | PUT/DELETE     | Update/delete block                      |
+| `/api/blocks/{id}/strict`      | PATCH          | Add stricter rules (allowed when locked) |
 | `/api/blocks/{id}/lock-status` | GET            | Check if block is locked                 |
 | `/api/stats`                   | GET            | Blocking statistics                      |
 | `/api/browsers`                | GET            | Browser extension status                 |
@@ -131,8 +128,8 @@ timestamp DATETIME
 ### Rules Storage
 
 - **Text-based**: Newline-separated strings in blocks table
-- **Four rule types**: websites_blocked, websites_allowed, apps_blocked, apps_allowed
-- **Allow list precedence**: Allow lists override block lists
+- **Three rule types**: websites_blocked, websites_allowed, apps_blocked
+- **Allow list precedence**: websites_allowed overrides websites_blocked
 
 ### Website Patterns
 
@@ -156,7 +153,7 @@ timestamp DATETIME
 
 ## Security Features
 
-- **Per-block lock mode**: Prevents modifications to a specific block when active
+- **Per-block lock mode**: Prevents modifications to a specific block when active (stricter rules can still be added)
 - **Settings lock**: Prevents all settings changes until expiry (with NTP verification)
 - **Shutdown prevention**: Daemon refuses SIGTERM signals when enabled
 - **NTP verification**: Prevents clock manipulation

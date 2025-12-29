@@ -6,36 +6,28 @@ export interface Block {
   block_days_of_week: string | null; // JSON string of number array
   block_start_time: string | null;
   block_end_time: string | null;
-  lock_mode: 'none' | 'time_range' | 'locked_until';
-  lock_days_of_week: string | null; // JSON string of number array
-  lock_start_time: string | null;
-  lock_end_time: string | null;
+  lock_mode: 'none' | 'locked_until';
   lock_until: string | null;
   enabled: boolean;
   created_at: string;
   websites_blocked: string | null;
   websites_allowed: string | null;
   apps_blocked: string | null;
-  apps_allowed: string | null;
 }
 
 // Block input for creating/updating
 export interface BlockInput {
   name: string;
   block_mode: 'always' | 'time_range' | 'disabled';
-  lock_mode: 'none' | 'time_range' | 'locked_until';
+  lock_mode: 'none' | 'locked_until';
   enabled: boolean;
   block_days_of_week?: string;
   block_start_time?: string;
   block_end_time?: string;
-  lock_days_of_week?: string;
-  lock_start_time?: string;
-  lock_end_time?: string;
   lock_until?: string;
   websites_blocked?: string | null;
   websites_allowed?: string | null;
   apps_blocked?: string | null;
-  apps_allowed?: string | null;
 }
 
 // Daemon status
@@ -97,6 +89,13 @@ export interface GracePeriodResponse extends ApiResponse {
 
 export interface LockStatusResponse {
   locked: boolean;
+}
+
+// Strict update input (for adding rules to locked blocks)
+export interface BlockStrictUpdateInput {
+  websites_blocked_add?: string;
+  apps_blocked_add?: string;
+  websites_allowed_remove?: string;
 }
 
 // Browser enforcement settings
@@ -196,6 +195,7 @@ declare global {
         get_blocks(): Promise<Block[]>;
         add_block(data: BlockInput): Promise<AddBlockResponse>;
         update_block(block_id: number, updates: Partial<BlockInput>): Promise<ApiResponse>;
+        update_block_strict(block_id: number, updates: BlockStrictUpdateInput): Promise<ApiResponse>;
         delete_block(block_id: number): Promise<ApiResponse>;
         get_block_lock_status(block_id: number): Promise<LockStatusResponse>;
         get_stats(): Promise<Stats>;

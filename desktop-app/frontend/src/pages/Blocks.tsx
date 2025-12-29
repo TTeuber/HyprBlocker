@@ -5,6 +5,8 @@ import { useToast } from '../context/ToastContext';
 import { Button } from '../components/ui/Button';
 import { BlocksTable } from '../components/blocks/BlocksTable';
 import { BlockModal } from '../components/blocks/BlockModal';
+import { LockModal } from '../components/blocks/LockModal';
+import { AddRulesModal } from '../components/blocks/AddRulesModal';
 import { api } from '../lib/api';
 import type { Block } from '../types';
 
@@ -13,6 +15,10 @@ export function Blocks() {
   const { showToast } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<Block | null>(null);
+  const [isLockModalOpen, setIsLockModalOpen] = useState(false);
+  const [lockingBlock, setLockingBlock] = useState<Block | null>(null);
+  const [isAddRulesModalOpen, setIsAddRulesModalOpen] = useState(false);
+  const [addRulesBlock, setAddRulesBlock] = useState<Block | null>(null);
 
   const handleAddBlock = () => {
     setEditingBlock(null);
@@ -23,7 +29,9 @@ export function Blocks() {
     try {
       const lockStatus = await api.getBlockLockStatus(block.id);
       if (lockStatus.locked) {
-        showToast('This block is currently locked', 'warning');
+        // Block is locked, open AddRulesModal instead
+        setAddRulesBlock(block);
+        setIsAddRulesModalOpen(true);
         return;
       }
       setEditingBlock(block);
@@ -85,6 +93,21 @@ export function Blocks() {
     setEditingBlock(null);
   };
 
+  const handleLockBlock = (block: Block) => {
+    setLockingBlock(block);
+    setIsLockModalOpen(true);
+  };
+
+  const handleCloseLockModal = () => {
+    setIsLockModalOpen(false);
+    setLockingBlock(null);
+  };
+
+  const handleCloseAddRulesModal = () => {
+    setIsAddRulesModalOpen(false);
+    setAddRulesBlock(null);
+  };
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -104,12 +127,25 @@ export function Blocks() {
         onEdit={handleEditBlock}
         onToggle={handleToggleBlock}
         onDelete={handleDeleteBlock}
+        onLock={handleLockBlock}
       />
 
       <BlockModal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         editBlock={editingBlock}
+      />
+
+      <LockModal
+        isOpen={isLockModalOpen}
+        onClose={handleCloseLockModal}
+        block={lockingBlock}
+      />
+
+      <AddRulesModal
+        isOpen={isAddRulesModalOpen}
+        onClose={handleCloseAddRulesModal}
+        block={addRulesBlock}
       />
     </div>
   );

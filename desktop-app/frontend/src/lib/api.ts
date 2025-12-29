@@ -2,6 +2,7 @@ import type {
   DaemonStatus,
   Block,
   BlockInput,
+  BlockStrictUpdateInput,
   AddBlockResponse,
   ApiResponse,
   LockStatusResponse,
@@ -52,6 +53,11 @@ export const api = {
   async updateBlock(blockId: number, updates: Partial<BlockInput>): Promise<ApiResponse> {
     await waitForPywebview();
     return window.pywebview.api.update_block(blockId, updates);
+  },
+
+  async updateBlockStrict(blockId: number, updates: BlockStrictUpdateInput): Promise<ApiResponse> {
+    await waitForPywebview();
+    return window.pywebview.api.update_block_strict(blockId, updates);
   },
 
   async deleteBlock(blockId: number): Promise<ApiResponse> {

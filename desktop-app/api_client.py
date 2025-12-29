@@ -15,16 +15,12 @@ class Block:
     block_start_time: Optional[str]
     block_end_time: Optional[str]
     lock_mode: str
-    lock_days_of_week: Optional[str]
-    lock_start_time: Optional[str]
-    lock_end_time: Optional[str]
     lock_until: Optional[str]
     enabled: bool
     created_at: str
     websites_blocked: Optional[str]
     websites_allowed: Optional[str]
     apps_blocked: Optional[str]
-    apps_allowed: Optional[str]
 
 
 @dataclass
@@ -267,6 +263,28 @@ class DaemonClient:
                 return response.json()
             else:
                 raise Exception(f"Failed to get block lock status: {response.text}")
+        except requests.RequestException as e:
+            raise Exception(f"Request failed: {str(e)}")
+
+    def update_block_strict(self, block_id: int, **updates) -> Optional[Block]:
+        """Update a block with stricter rules only (allowed even when locked).
+
+        Args:
+            block_id: Block ID to update
+            **updates: Strict update fields:
+                - websites_blocked_add: Items to add to blocked websites
+                - apps_blocked_add: Items to add to blocked apps
+                - websites_allowed_remove: Items to remove from allowed websites
+
+        Returns:
+            Updated Block or None if failed
+        """
+        try:
+            response = self._request('PATCH', f'/api/blocks/{block_id}/strict', json=updates)
+            if response.status_code == 200:
+                return Block(**response.json())
+            else:
+                raise Exception(f"Failed to update block: {response.text}")
         except requests.RequestException as e:
             raise Exception(f"Request failed: {str(e)}")
 

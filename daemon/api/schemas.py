@@ -24,16 +24,12 @@ class BlockCreate(BaseModel):
     block_days_of_week: Optional[str] = None  # JSON array
     block_start_time: Optional[str] = None
     block_end_time: Optional[str] = None
-    lock_mode: str = 'none'  # 'none', 'time_range', 'locked_until'
-    lock_days_of_week: Optional[str] = None
-    lock_start_time: Optional[str] = None
-    lock_end_time: Optional[str] = None
+    lock_mode: str = 'none'  # 'none', 'locked_until'
     lock_until: Optional[str] = None  # ISO format datetime
     enabled: bool = True
     websites_blocked: Optional[str] = None  # Newline-separated list
     websites_allowed: Optional[str] = None  # Newline-separated allow list
     apps_blocked: Optional[str] = None      # Newline-separated list
-    apps_allowed: Optional[str] = None      # Newline-separated allow list
 
 
 class BlockUpdate(BaseModel):
@@ -43,15 +39,23 @@ class BlockUpdate(BaseModel):
     block_start_time: Optional[str] = None
     block_end_time: Optional[str] = None
     lock_mode: Optional[str] = None
-    lock_days_of_week: Optional[str] = None
-    lock_start_time: Optional[str] = None
-    lock_end_time: Optional[str] = None
     lock_until: Optional[str] = None
     enabled: Optional[bool] = None
     websites_blocked: Optional[str] = None
     websites_allowed: Optional[str] = None
     apps_blocked: Optional[str] = None
-    apps_allowed: Optional[str] = None
+
+
+class BlockStrictUpdate(BaseModel):
+    """Update a block with stricter rules only (allowed even when locked).
+
+    These operations make the block more restrictive:
+    - Adding items to blocked lists
+    - Removing items from allowed lists
+    """
+    websites_blocked_add: Optional[str] = None      # Newline-separated items to ADD to blocked
+    apps_blocked_add: Optional[str] = None          # Newline-separated items to ADD to blocked
+    websites_allowed_remove: Optional[str] = None   # Newline-separated items to REMOVE from allowed
 
 
 class BlockResponse(BaseModel):
@@ -62,14 +66,10 @@ class BlockResponse(BaseModel):
     block_start_time: Optional[str]
     block_end_time: Optional[str]
     lock_mode: str
-    lock_days_of_week: Optional[str]
-    lock_start_time: Optional[str]
-    lock_end_time: Optional[str]
     lock_until: Optional[str]
     websites_blocked: Optional[str]
     websites_allowed: Optional[str]
     apps_blocked: Optional[str]
-    apps_allowed: Optional[str]
     enabled: bool
     created_at: str
 

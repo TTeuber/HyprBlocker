@@ -1,3 +1,4 @@
+import { Lock, Unlock } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { parseDaysOfWeek, formatDays, formatDate } from '../../lib/api';
@@ -8,6 +9,7 @@ interface BlocksTableProps {
   onEdit: (block: Block) => void;
   onToggle: (block: Block) => void;
   onDelete: (block: Block) => void;
+  onLock: (block: Block) => void;
 }
 
 function formatBlockMode(block: Block): React.ReactNode {
@@ -29,29 +31,36 @@ function formatBlockMode(block: Block): React.ReactNode {
   }
 }
 
-function formatLockMode(block: Block): React.ReactNode {
-  if (block.lock_mode === 'none') {
-    return <Badge variant="default">No Lock</Badge>;
-  } else if (block.lock_mode === 'time_range') {
-    const days = parseDaysOfWeek(block.lock_days_of_week);
-    const daysText = days.length > 0 ? formatDays(days) : 'All days';
+function isBlockLocked(block: Block): boolean {
+  if (block.lock_mode !== 'locked_until' || !block.lock_until) {
+    return false;
+  }
+  return new Date(block.lock_until) > new Date();
+}
+
+function formatLockStatus(block: Block): React.ReactNode {
+  const locked = isBlockLocked(block);
+
+  if (locked) {
     return (
-      <div>
-        <Badge variant="warning">Time Lock</Badge>
-        <div className="text-xs text-text-secondary mt-1">
-          {daysText} {block.lock_start_time || ''} - {block.lock_end_time || ''}
+      <div className="flex flex-col items-start">
+        <div className="flex items-center gap-1.5 text-yellow-500">
+          <Lock size={16} />
+          <span className="text-sm font-medium">Locked</span>
+        </div>
+        <div className="text-xs text-text-secondary mt-0.5">
+          Until {formatDate(block.lock_until)}
         </div>
       </div>
     );
-  } else if (block.lock_mode === 'locked_until') {
-    return (
-      <div>
-        <Badge variant="warning">Lock Until</Badge>
-        <div className="text-xs text-text-secondary mt-1">{formatDate(block.lock_until)}</div>
-      </div>
-    );
   }
-  return '-';
+
+  return (
+    <div className="flex items-center gap-1.5 text-text-secondary">
+      <Unlock size={16} />
+      <span className="text-sm">Unlocked</span>
+    </div>
+  );
 }
 
 function countRules(block: Block): number {
@@ -64,7 +73,7 @@ function countRules(block: Block): number {
   return websitesCount + appsCount;
 }
 
-export function BlocksTable({ blocks, onEdit, onToggle, onDelete }: BlocksTableProps) {
+export function BlocksTable({ blocks, onEdit, onToggle, onDelete, onLock }: BlocksTableProps) {
   if (blocks.length === 0) {
     return (
       <p className="text-center text-text-secondary py-10">
@@ -85,7 +94,7 @@ export function BlocksTable({ blocks, onEdit, onToggle, onDelete }: BlocksTableP
               Block Mode
             </th>
             <th className="px-4 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wide">
-              Lock Mode
+              Lock
             </th>
             <th className="px-4 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wide">
               Rules
@@ -103,7 +112,15 @@ export function BlocksTable({ blocks, onEdit, onToggle, onDelete }: BlocksTableP
             <tr key={block.id} className="border-t border-border hover:bg-bg-hover/50">
               <td className="px-4 py-3 text-text">{block.name}</td>
               <td className="px-4 py-3">{formatBlockMode(block)}</td>
-              <td className="px-4 py-3">{formatLockMode(block)}</td>
+              <td className="px-4 py-3">
+                <button
+                  onClick={() => onLock(block)}
+                  className="hover:bg-bg-hover rounded p-1 transition-colors cursor-pointer"
+                  title="Configure lock"
+                >
+                  {formatLockStatus(block)}
+                </button>
+              </td>
               <td className="px-4 py-3 text-text">{countRules(block)} rules</td>
               <td className="px-4 py-3">
                 <Badge variant={block.enabled ? 'success' : 'danger'}>

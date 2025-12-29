@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Block
 from lock_manager import get_lock_manager
-from ..schemas import BlockCreate, BlockUpdate, BlockResponse
+from ..schemas import BlockCreate, BlockUpdate, BlockStrictUpdate, BlockResponse
 from ..deps import get_session, check_block_lock
 
 router = APIRouter(prefix="/api", tags=["blocks"])
@@ -30,7 +30,7 @@ async def create_block(block: BlockCreate, session: AsyncSession = Depends(get_s
     if block.block_mode not in ('always', 'time_range', 'disabled'):
         raise HTTPException(status_code=400, detail="Invalid block_mode")
 
-    if block.lock_mode not in ('none', 'time_range', 'locked_until'):
+    if block.lock_mode not in ('none', 'locked_until'):
         raise HTTPException(status_code=400, detail="Invalid lock_mode")
 
     lock_until = None
@@ -47,14 +47,10 @@ async def create_block(block: BlockCreate, session: AsyncSession = Depends(get_s
         block_start_time=block.block_start_time,
         block_end_time=block.block_end_time,
         lock_mode=block.lock_mode,
-        lock_days_of_week=block.lock_days_of_week,
-        lock_start_time=block.lock_start_time,
-        lock_end_time=block.lock_end_time,
         lock_until=lock_until,
         websites_blocked=block.websites_blocked,
         websites_allowed=block.websites_allowed,
         apps_blocked=block.apps_blocked,
-        apps_allowed=block.apps_allowed,
         enabled=block.enabled
     )
     session.add(db_block)
@@ -98,22 +94,13 @@ async def update_block(
 
     # Handle lock_mode and lock_until together for consistency
     if block.lock_mode is not None:
-        if block.lock_mode not in ('none', 'time_range', 'locked_until'):
+        if block.lock_mode not in ('none', 'locked_until'):
             raise HTTPException(status_code=400, detail="Invalid lock_mode")
         db_block.lock_mode = block.lock_mode
 
         # Clear lock_until if changing away from locked_until mode
         if block.lock_mode != 'locked_until':
             db_block.lock_until = None
-
-    if block.lock_days_of_week is not None:
-        db_block.lock_days_of_week = block.lock_days_of_week
-
-    if block.lock_start_time is not None:
-        db_block.lock_start_time = block.lock_start_time
-
-    if block.lock_end_time is not None:
-        db_block.lock_end_time = block.lock_end_time
 
     # Handle lock_until with validation
     if block.lock_until is not None:
@@ -142,9 +129,6 @@ async def update_block(
 
     if block.apps_blocked is not None:
         db_block.apps_blocked = block.apps_blocked
-
-    if block.apps_allowed is not None:
-        db_block.apps_allowed = block.apps_allowed
 
     await session.commit()
     await session.refresh(db_block)
@@ -177,3 +161,60 @@ async def get_block_lock_status(block_id: int):
         is_locked = await lock_manager.is_block_locked(block_id)
         return {"locked": is_locked}
     return {"locked": False}
+
+
+def parse_rules_to_set(rules: str | None) -> set:
+    """Parse newline-separated rules into a set."""
+    if not rules:
+        return set()
+    return {r.strip() for r in rules.split('\n') if r.strip()}
+
+
+def set_to_rules(rules_set: set) -> str | None:
+    """Convert a set of rules back to newline-separated string."""
+    if not rules_set:
+        return None
+    return '\n'.join(sorted(rules_set))
+
+
+@router.patch("/blocks/{block_id}/strict", response_model=BlockResponse)
+async def update_block_strict(
+    block_id: int,
+    updates: BlockStrictUpdate,
+    session: AsyncSession = Depends(get_session)
+):
+    """Update a block with stricter rules only (allowed even when locked).
+
+    This endpoint bypasses lock checks because it can only make the block
+    MORE restrictive:
+    - Adding items to blocked lists
+    - Removing items from allowed lists
+    """
+    result = await session.execute(select(Block).where(Block.id == block_id))
+    db_block = result.scalar_one_or_none()
+
+    if db_block is None:
+        raise HTTPException(status_code=404, detail="Block not found")
+
+    # Add to websites_blocked
+    if updates.websites_blocked_add:
+        existing = parse_rules_to_set(db_block.websites_blocked)
+        to_add = parse_rules_to_set(updates.websites_blocked_add)
+        db_block.websites_blocked = set_to_rules(existing | to_add)
+
+    # Add to apps_blocked
+    if updates.apps_blocked_add:
+        existing = parse_rules_to_set(db_block.apps_blocked)
+        to_add = parse_rules_to_set(updates.apps_blocked_add)
+        db_block.apps_blocked = set_to_rules(existing | to_add)
+
+    # Remove from websites_allowed
+    if updates.websites_allowed_remove:
+        existing = parse_rules_to_set(db_block.websites_allowed)
+        to_remove = parse_rules_to_set(updates.websites_allowed_remove)
+        db_block.websites_allowed = set_to_rules(existing - to_remove)
+
+    await session.commit()
+    await session.refresh(db_block)
+
+    return BlockResponse(**db_block.to_dict())

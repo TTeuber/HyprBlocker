@@ -1,8 +1,7 @@
 """Lock mode management for the website blocker daemon."""
 
-from datetime import datetime, time as dt_time, timedelta
+from datetime import datetime
 from typing import List, Optional
-import json
 import logging
 import sys
 import os
@@ -23,6 +22,10 @@ class LockManager:
     Lock mode is separate from blocking:
     - block_mode determines when content is blocked
     - lock_mode determines when configuration is read-only
+
+    Lock modes:
+    - 'none': Configuration can be changed anytime
+    - 'locked_until': Configuration locked until specific datetime
     """
 
     def __init__(self, get_blocks_func, session_factory=None):
@@ -35,40 +38,6 @@ class LockManager:
         self._get_blocks = get_blocks_func
         self._session_factory = session_factory
         self._time_verifier = get_time_verifier()
-
-    def _parse_time(self, time_str: str) -> dt_time:
-        """Parse a time string like '09:00' into a time object."""
-        parts = time_str.split(':')
-        return dt_time(int(parts[0]), int(parts[1]))
-
-    def _parse_days_of_week(self, days_of_week: str) -> List[int]:
-        """Parse days of week string into list of integers.
-
-        Handles both JSON arrays like "[0,1,2]" and comma-separated strings like "0,1,2".
-
-        Args:
-            days_of_week: Days string in either format
-
-        Returns:
-            List of day integers (0=Monday)
-        """
-        if not days_of_week:
-            return []
-
-        # Try JSON first
-        try:
-            days = json.loads(days_of_week)
-            if isinstance(days, list):
-                return [int(d) for d in days]
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-        # Try comma-separated
-        try:
-            return [int(d.strip()) for d in days_of_week.split(',') if d.strip()]
-        except ValueError:
-            logger.error(f"Invalid days_of_week format: {days_of_week}")
-            return []
 
     def _is_block_locked(self, block, now: datetime) -> bool:
         """Check if a block's configuration is currently locked.
@@ -91,25 +60,6 @@ class LockManager:
                 return now < block.lock_until
             return False
 
-        elif block.lock_mode == 'time_range':
-            # Check day of week (0=Monday in Python)
-            if block.lock_days_of_week:
-                days = self._parse_days_of_week(block.lock_days_of_week)
-                if days and now.weekday() not in days:
-                    return False
-
-            # Check time range
-            if block.lock_start_time and block.lock_end_time:
-                start = self._parse_time(block.lock_start_time)
-                end = self._parse_time(block.lock_end_time)
-                current_time = now.time()
-
-                # Handle overnight schedules (e.g., 22:00 - 06:00)
-                if start <= end:
-                    return start <= current_time <= end
-                else:
-                    return current_time >= start or current_time <= end
-
         return False
 
     def _get_next_unlock_time(self, block, now: datetime) -> Optional[datetime]:
@@ -124,17 +74,6 @@ class LockManager:
         """
         if block.lock_mode == 'locked_until':
             return block.lock_until
-
-        elif block.lock_mode == 'time_range':
-            if block.lock_end_time:
-                end = self._parse_time(block.lock_end_time)
-                end_datetime = datetime.combine(now.date(), end)
-
-                # If end time is before now (overnight schedule), it's tomorrow
-                if end_datetime <= now:
-                    end_datetime += timedelta(days=1)
-
-                return end_datetime
 
         return None
 

@@ -30,14 +30,9 @@ const INITIAL_FORM_STATE: BlockInput = {
   block_days_of_week: '[]',
   block_start_time: '09:00',
   block_end_time: '17:00',
-  lock_days_of_week: '[]',
-  lock_start_time: '09:00',
-  lock_end_time: '17:00',
-  lock_until: '',
   websites_blocked: '',
   websites_allowed: '',
   apps_blocked: '',
-  apps_allowed: '',
 };
 
 export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
@@ -45,9 +40,6 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
   const { refreshBlocks } = useStatus();
   const [formData, setFormData] = useState<BlockInput>(INITIAL_FORM_STATE);
   const [blockDays, setBlockDays] = useState<number[]>([]);
-  const [lockDays, setLockDays] = useState<number[]>([]);
-  const [lockUntilDate, setLockUntilDate] = useState<string>('');
-  const [lockUntilTime, setLockUntilTime] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
 
   const isEditMode = !!editBlock;
@@ -62,32 +54,14 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
         enabled: editBlock.enabled,
         block_start_time: editBlock.block_start_time || '09:00',
         block_end_time: editBlock.block_end_time || '17:00',
-        lock_start_time: editBlock.lock_start_time || '09:00',
-        lock_end_time: editBlock.lock_end_time || '17:00',
-        lock_until: editBlock.lock_until || '',
         websites_blocked: editBlock.websites_blocked || '',
         websites_allowed: editBlock.websites_allowed || '',
         apps_blocked: editBlock.apps_blocked || '',
-        apps_allowed: editBlock.apps_allowed || '',
       });
       setBlockDays(parseDaysOfWeek(editBlock.block_days_of_week));
-      setLockDays(parseDaysOfWeek(editBlock.lock_days_of_week));
-
-      // Parse lock_until into separate date and time
-      if (editBlock.lock_until) {
-        const [datePart, timePart] = editBlock.lock_until.split('T');
-        setLockUntilDate(datePart);
-        setLockUntilTime(timePart ? timePart.substring(0, 5) : '');
-      } else {
-        setLockUntilDate('');
-        setLockUntilTime('');
-      }
     } else {
       setFormData(INITIAL_FORM_STATE);
       setBlockDays([]);
-      setLockDays([]);
-      setLockUntilDate('');
-      setLockUntilTime('');
     }
   }, [editBlock, isOpen]);
 
@@ -99,36 +73,7 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
       const data: BlockInput = {
         ...formData,
         block_days_of_week: JSON.stringify(blockDays),
-        lock_days_of_week: JSON.stringify(lockDays),
       };
-
-      // Handle lock_until datetime
-      if (formData.lock_mode === 'locked_until') {
-        // Trim and validate date/time fields
-        const trimmedDate = lockUntilDate.trim();
-        const trimmedTime = lockUntilTime.trim();
-
-        console.log('[BlockModal] Lock Until validation:', {
-          lock_mode: formData.lock_mode,
-          lockUntilDate: trimmedDate,
-          lockUntilTime: trimmedTime,
-          isEditMode
-        });
-
-        if (trimmedDate && trimmedTime) {
-          // Combine date and time: "2024-12-25" + "T" + "14:30" = "2024-12-25T14:30"
-          data.lock_until = `${trimmedDate}T${trimmedTime}`;
-          console.log('[BlockModal] Combined lock_until:', data.lock_until);
-        } else {
-          // If either field is missing, show error and abort
-          showToast('Please fill in both date and time for Lock Until mode', 'error');
-          setSubmitting(false);
-          return;
-        }
-      } else {
-        // Remove lock_until if not in locked_until mode
-        delete data.lock_until;
-      }
 
       // Remove block time fields if block_mode is not 'time_range'
       if (formData.block_mode !== 'time_range') {
@@ -137,25 +82,11 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
         delete data.block_days_of_week;
       }
 
-      // Remove lock time fields if lock_mode is not 'time_range'
-      if (formData.lock_mode !== 'time_range') {
-        delete data.lock_start_time;
-        delete data.lock_end_time;
-        delete data.lock_days_of_week;
-      }
-
       let result;
       if (isEditMode && editBlock) {
-        console.log('[BlockModal] Calling updateBlock:', {
-          blockId: editBlock.id,
-          data: data
-        });
         result = await api.updateBlock(editBlock.id, data);
-        console.log('[BlockModal] updateBlock result:', result);
       } else {
-        console.log('[BlockModal] Calling addBlock:', { data });
         result = await api.addBlock(data);
-        console.log('[BlockModal] addBlock result:', result);
       }
 
       if (result.success) {
@@ -237,69 +168,6 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
           )}
         </FormSection>
 
-        {/* Lock Schedule Section */}
-        <FormSection title="Lock Schedule" hint="When should configuration be locked (read-only)?">
-          <FormGroup label="Lock Mode">
-            <Select
-              value={formData.lock_mode}
-              onChange={(e) => updateField('lock_mode', e.target.value as BlockInput['lock_mode'])}
-            >
-              <option value="none">No Lock</option>
-              <option value="time_range">Lock During Time Range</option>
-              <option value="locked_until">Lock Until Date/Time</option>
-            </Select>
-          </FormGroup>
-
-          {formData.lock_mode === 'time_range' && (
-            <>
-              <FormGroup label="Lock Days">
-                <DayCheckboxes
-                  name="lock-days"
-                  selectedDays={lockDays}
-                  onChange={setLockDays}
-                />
-              </FormGroup>
-              <FormRow>
-                <FormGroup label="Start Time">
-                  <Input
-                    type="time"
-                    value={formData.lock_start_time}
-                    onChange={(e) => updateField('lock_start_time', e.target.value)}
-                  />
-                </FormGroup>
-                <FormGroup label="End Time">
-                  <Input
-                    type="time"
-                    value={formData.lock_end_time}
-                    onChange={(e) => updateField('lock_end_time', e.target.value)}
-                  />
-                </FormGroup>
-              </FormRow>
-            </>
-          )}
-
-          {formData.lock_mode === 'locked_until' && (
-            <FormRow>
-              <FormGroup label="Date">
-                <Input
-                  type="date"
-                  value={lockUntilDate}
-                  onChange={(e) => setLockUntilDate(e.target.value)}
-                  required
-                />
-              </FormGroup>
-              <FormGroup label="Time">
-                <Input
-                  type="time"
-                  value={lockUntilTime}
-                  onChange={(e) => setLockUntilTime(e.target.value)}
-                  required
-                />
-              </FormGroup>
-            </FormRow>
-          )}
-        </FormSection>
-
         {/* Blocked Content Section */}
         <FormSection title="Blocked Content" hint="Enter one item per line">
           <FormGroup label="Blocked Websites" hint="Supports paths: youtube.com/shorts blocks only YouTube Shorts">
@@ -326,14 +194,6 @@ export function BlockModal({ isOpen, onClose, editBlock }: BlockModalProps) {
               placeholder="steam&#10;discord"
               value={formData.apps_blocked || ''}
               onChange={(e) => updateField('apps_blocked', e.target.value || '')}
-            />
-          </FormGroup>
-
-          <FormGroup label="Allowed Applications (exceptions)">
-            <Textarea
-              rows={3}
-              value={formData.apps_allowed || ''}
-              onChange={(e) => updateField('apps_allowed', e.target.value || '')}
             />
           </FormGroup>
         </FormSection>

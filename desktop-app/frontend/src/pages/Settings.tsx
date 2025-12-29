@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useStatus } from "../context/StatusContext";
 import { useToast } from "../context/ToastContext";
 import { Card } from "../components/ui/Card";
-import { Checkbox, Select } from "../components/ui/FormElements";
+import { Checkbox, Select, Input } from "../components/ui/FormElements";
 import { Button } from "../components/ui/Button";
 import { api } from "../lib/api";
 import type {
@@ -12,6 +12,8 @@ import type {
   WatchdogStatus,
   SettingsLockStatus,
 } from "../types";
+
+type DurationUnit = 'minute' | 'hour' | 'day' | 'month';
 
 export function Settings() {
   const { status } = useStatus();
@@ -32,7 +34,8 @@ export function Settings() {
     null,
   );
   const [updating, setUpdating] = useState(false);
-  const [lockDuration, setLockDuration] = useState("1h");
+  const [lockDurationValue, setLockDurationValue] = useState(1);
+  const [lockDurationUnit, setLockDurationUnit] = useState<DurationUnit>('hour');
 
   // Load all settings on mount
   useEffect(() => {
@@ -234,45 +237,26 @@ export function Settings() {
   const handleLockSettings = async () => {
     setUpdating(true);
     try {
-      // Calculate lock_until based on selected duration
+      // Calculate lock_until based on duration value and unit
       const now = new Date();
-      let lockUntil: Date;
+      let milliseconds = 0;
 
-      switch (lockDuration) {
-        case "15m":
-          lockUntil = new Date(now.getTime() + 15 * 60 * 1000);
+      switch (lockDurationUnit) {
+        case 'minute':
+          milliseconds = lockDurationValue * 60 * 1000;
           break;
-        case "30m":
-          lockUntil = new Date(now.getTime() + 30 * 60 * 1000);
+        case 'hour':
+          milliseconds = lockDurationValue * 60 * 60 * 1000;
           break;
-        case "1h":
-          lockUntil = new Date(now.getTime() + 60 * 60 * 1000);
+        case 'day':
+          milliseconds = lockDurationValue * 24 * 60 * 60 * 1000;
           break;
-        case "4h":
-          lockUntil = new Date(now.getTime() + 4 * 60 * 60 * 1000);
+        case 'month':
+          milliseconds = lockDurationValue * 30 * 24 * 60 * 60 * 1000;
           break;
-        case "8h":
-          lockUntil = new Date(now.getTime() + 8 * 60 * 60 * 1000);
-          break;
-        case "1d":
-          lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-          break;
-        case "2d":
-          lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000 * 2);
-          break;
-        case "1w":
-          lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000 * 7);
-          break;
-        case "2w":
-          lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000 * 14);
-          break;
-        case "1m":
-          lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000 * 30);
-          break;
-        default:
-          lockUntil = new Date(now.getTime() + 60 * 60 * 1000);
       }
 
+      const lockUntil = new Date(now.getTime() + milliseconds);
       const result = await api.lockSettings(lockUntil.toISOString());
 
       if (result.success) {
@@ -467,22 +451,24 @@ export function Settings() {
                   Lock settings to prevent changes for a specified duration.
                   Uses NTP time verification to prevent clock manipulation.
                 </p>
-                <div className="flex gap-3 items-center">
+                <div className="flex gap-2 items-center">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={lockDurationValue}
+                    onChange={(e) => setLockDurationValue(parseInt(e.target.value) || 1)}
+                    disabled={updating}
+                    className="w-20"
+                  />
                   <Select
-                    value={lockDuration}
-                    onChange={(e) => setLockDuration(e.target.value)}
+                    value={lockDurationUnit}
+                    onChange={(e) => setLockDurationUnit(e.target.value as DurationUnit)}
                     disabled={updating}
                   >
-                    <option value="15m">15 minutes</option>
-                    <option value="30m">30 minutes</option>
-                    <option value="1h">1 hour</option>
-                    <option value="4h">4 hours</option>
-                    <option value="8h">8 hours</option>
-                    <option value="1d">24 hours</option>
-                    <option value="2d">2 days</option>
-                    <option value="1w">1 week</option>
-                    <option value="2w">2 weeks</option>
-                    <option value="1m">1 month</option>
+                    <option value="minute">Minutes</option>
+                    <option value="hour">Hours</option>
+                    <option value="day">Days</option>
+                    <option value="month">Months</option>
                   </Select>
                   <Button
                     onClick={handleLockSettings}
