@@ -29,7 +29,7 @@ export function Dashboard() {
         {/* Status Card */}
         <Card title="Status">
           <div className="text-3xl font-bold text-accent-blue mb-2">
-            {status?.locked ? 'Locked' : status?.running ? 'Active' : 'Daemon Not Running'}
+            {status?.running ? 'Active' : 'Daemon Not Running'}
           </div>
           <div className="text-sm text-text-secondary">
             {status?.active_blocks ?? 0} blocks | {status?.browsers_compliant ?? 0}/

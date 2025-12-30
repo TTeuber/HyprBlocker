@@ -89,7 +89,14 @@ export function LockModal({ isOpen, onClose, block }: LockModalProps) {
       }
 
       const lockUntil = new Date(now.getTime() + milliseconds);
-      return lockUntil.toISOString();
+      // Format as local ISO string (no timezone) to match "Until Date/Time" format
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const y = lockUntil.getFullYear();
+      const m = pad(lockUntil.getMonth() + 1);
+      const d = pad(lockUntil.getDate());
+      const h = pad(lockUntil.getHours());
+      const min = pad(lockUntil.getMinutes());
+      return `${y}-${m}-${d}T${h}:${min}`;
     }
 
     return null;
@@ -109,8 +116,8 @@ export function LockModal({ isOpen, onClose, block }: LockModalProps) {
       }
 
       const updates = {
-        lock_mode: lockOption === 'none' ? 'none' : 'locked_until',
-        lock_until: lockUntil,
+        lock_mode: (lockOption === 'none' ? 'none' : 'locked_until') as 'none' | 'locked_until',
+        lock_until: lockUntil ?? undefined,
       };
 
       const result = await api.updateBlock(block.id, updates);
