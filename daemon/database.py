@@ -85,7 +85,7 @@ class Block(Base):
             "block_start_time": self.block_start_time,
             "block_end_time": self.block_end_time,
             "lock_mode": self.lock_mode,
-            "lock_until": self.lock_until.isoformat() if self.lock_until else None,
+            "lock_until": (self.lock_until.isoformat() + 'Z') if self.lock_until else None,
             "websites_blocked": self.websites_blocked,
             "websites_allowed": self.websites_allowed,
             "apps_blocked": self.apps_blocked,

@@ -1,13 +1,7 @@
-## Features
-
-- Actions
-  - add rules while locked
-
-- Easier "lock until" workflow
-  - 5 mins from now, 1 day from now, etc.
-  - in addition to current input method
-  - default value is current day, not just placeholder, so I don't have to click in and enter today
-
-- probably don't need an allow list for apps, doesn't work like websites
+# Features
 
 - block incognito, don't need it
+
+- shouldn't be able to change lock mode of block while it is locked
+
+- better date picker UI
