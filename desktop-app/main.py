@@ -432,6 +432,12 @@ class API:
 
 def get_web_dir() -> str:
     """Get the path to the web directory."""
+    # Check if running from PyInstaller bundle
+    if hasattr(sys, '_MEIPASS'):
+        web_dir = os.path.join(sys._MEIPASS, 'web')
+        if os.path.exists(web_dir):
+            return web_dir
+
     # Check if running from source
     script_dir = os.path.dirname(os.path.abspath(__file__))
     web_dir = os.path.join(script_dir, 'web')
@@ -446,11 +452,60 @@ def get_web_dir() -> str:
     raise FileNotFoundError("Web directory not found")
 
 
+def is_tray_running() -> bool:
+    """Check if the tray application is already running."""
+    try:
+        result = subprocess.run(
+            ['pgrep', '-f', 'website-blocker-tray'],
+            capture_output=True,
+            text=True
+        )
+        pids = result.stdout.strip().split('\n')
+        current_pid = os.getpid()
+        other_pids = [p for p in pids if p and int(p) != current_pid]
+        return len(other_pids) > 0
+    except Exception:
+        return False
+
+
+def start_tray_if_not_running():
+    """Start the tray application if it's not already running."""
+    if is_tray_running():
+        return
+
+    # Try installed location first
+    tray_path = os.path.expanduser('~/.local/bin/website-blocker-tray')
+    if os.path.exists(tray_path):
+        subprocess.Popen(
+            [tray_path],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        return
+
+    # Try development location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    dev_python = os.path.join(script_dir, '..', 'tray', '.venv', 'bin', 'python')
+    dev_tray = os.path.join(script_dir, '..', 'tray', 'main.py')
+    if os.path.exists(dev_python) and os.path.exists(dev_tray):
+        subprocess.Popen(
+            [dev_python, dev_tray],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='Website Blocker Desktop App')
     parser.add_argument('--dev', action='store_true', help='Run in development mode (connects to Vite dev server)')
     args = parser.parse_args()
+
+    # Start tray app if not running (production mode only)
+    if not args.dev:
+        start_tray_if_not_running()
 
     api = API()
 

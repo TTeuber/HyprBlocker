@@ -2,18 +2,19 @@
 
 ## Architecture Overview
 
-Three main components:
+Four main components:
 
 1. **Daemon** (daemon/) - FastAPI server, port 8765, systemd service
 2. **Desktop App** (desktop-app/) - PyWebView GUI with React frontend
-3. **Browser Extension** (extension/) - WebExtensions API (Manifest v3)
+3. **Tray App** (tray/) - System tray icon using pystray with appindicator
+4. **Browser Extension** (extension/) - WebExtensions API (Manifest v3)
 
 ```
-Desktop App + Browser Extension
-       ↓ HTTP API (localhost:8765)
-    Daemon (FastAPI)
-       ↓ SQLite + Hyprland IPC
-   Database + Window Manager
+Tray App + Desktop App + Browser Extension
+              ↓ HTTP API (localhost:8765)
+           Daemon (FastAPI)
+              ↓ SQLite + Hyprland IPC
+          Database + Window Manager
 ```
 
 ## Key Files & Modules
@@ -45,9 +46,21 @@ Desktop App + Browser Extension
 
 ### Desktop App (desktop-app/)
 
-- `main.py` - PyWebView window + JS bridge
+- `main.py` - PyWebView window + JS bridge, starts tray if not running
 - `api_client.py` - HTTP client for daemon API
 - `frontend/` - React + TypeScript (Vite build)
+- `desktop-app.spec` - PyInstaller spec for building executable
+
+### Tray App (tray/)
+
+- `main.py` - System tray app using pystray (appindicator backend)
+- `pyproject.toml` - Dependencies (pystray, pillow, pygobject, requests)
+- `tray-app.spec` - PyInstaller spec for building executable
+
+### Icons (icons/)
+
+- `icon-desktop-*.png` - Desktop app icons (32, 48, 64, 128, 256 px)
+- `icon-tray-*.png` - Tray app icons (16, 22, 24 px)
 
 ### Browser Extension (extension/)
 
@@ -273,6 +286,15 @@ Location: `~/.config/website-blocker/watchdog_state.json`
 - Watchdog log: `~/.config/website-blocker/watchdog.log`
 - Systemd: `~/.config/systemd/user/website-blocker.service`
 - Native messaging: `~/.config/chromium/NativeMessagingHosts/com.websiteblocker.host.json`
+- Tray autostart: `~/.config/autostart/website-blocker-tray.desktop`
+
+## Installation & Executables
+
+- Executables: `~/.local/bin/website-blocker`, `~/.local/bin/website-blocker-tray`
+- Icons: `~/.local/share/website-blocker/icons/`
+- Build with: `./install.sh --build`
+- Tray app starts automatically on login via autostart entry
+- Desktop app starts tray app if not running (production mode only)
 
 ### Config Fields (config.json security section)
 

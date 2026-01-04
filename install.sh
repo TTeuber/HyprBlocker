@@ -6,6 +6,101 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="$HOME/.config/website-blocker"
 DATA_DIR="$HOME/.local/share/website-blocker"
+BIN_DIR="$HOME/.local/bin"
+
+# Check for --build flag
+if [ "$1" = "--build" ]; then
+    echo "=== Building Desktop and Tray Executables ==="
+    echo ""
+
+    # Build frontend
+    echo "Building frontend..."
+    cd "$SCRIPT_DIR/desktop-app/frontend"
+    bun run build
+
+    # Sync dependencies
+    echo "Installing build dependencies..."
+    cd "$SCRIPT_DIR/desktop-app"
+    uv sync
+    cd "$SCRIPT_DIR/tray"
+    uv sync
+
+    # Build executables
+    echo "Building desktop app executable..."
+    cd "$SCRIPT_DIR/desktop-app"
+    uv run pyinstaller desktop-app.spec --distpath "$SCRIPT_DIR/dist/" --workpath "$SCRIPT_DIR/build/desktop-app" --noconfirm
+
+    echo "Building tray app executable..."
+    cd "$SCRIPT_DIR/tray"
+    uv run pyinstaller tray-app.spec --distpath "$SCRIPT_DIR/dist/" --workpath "$SCRIPT_DIR/build/tray" --noconfirm
+
+    # Install desktop app (onedir mode - copy directory)
+    echo "Installing desktop app..."
+    mkdir -p "$DATA_DIR/desktop-app-bin"
+    rm -rf "$DATA_DIR/desktop-app-bin/website-blocker"
+    cp -r "$SCRIPT_DIR/dist/website-blocker" "$DATA_DIR/desktop-app-bin/"
+
+    # Create symlink in ~/.local/bin
+    echo "Creating symlinks in $BIN_DIR..."
+    mkdir -p "$BIN_DIR"
+    ln -sf "$DATA_DIR/desktop-app-bin/website-blocker/website-blocker" "$BIN_DIR/website-blocker"
+    cp "$SCRIPT_DIR/dist/website-blocker-tray" "$BIN_DIR/"
+    chmod +x "$BIN_DIR/website-blocker-tray"
+
+    # Copy icons to installed location
+    echo "Installing icons..."
+    mkdir -p "$DATA_DIR/icons"
+    cp "$SCRIPT_DIR/icons/"* "$DATA_DIR/icons/"
+
+    # Install desktop icon for app launcher
+    echo "Installing desktop icon..."
+    APPS_DIR="$HOME/.local/share/applications"
+    mkdir -p "$APPS_DIR/icons"
+    cp "$SCRIPT_DIR/icons/icon-desktop-256.png" "$APPS_DIR/icons/WebsiteBlocker.png"
+
+    # Create desktop entry
+    echo "Creating desktop entry..."
+    cat > "$APPS_DIR/WebsiteBlocker.desktop" << EOF
+[Desktop Entry]
+Name=Website Blocker
+Comment=Block distracting websites and applications
+Exec=$DATA_DIR/desktop-app-bin/website-blocker/website-blocker
+Icon=$APPS_DIR/icons/WebsiteBlocker.png
+Terminal=false
+Type=Application
+Categories=Utility;
+StartupNotify=true
+EOF
+
+    # Create autostart entry for tray app
+    echo "Creating autostart entry for tray app..."
+    AUTOSTART_DIR="$HOME/.config/autostart"
+    mkdir -p "$AUTOSTART_DIR"
+    cat > "$AUTOSTART_DIR/website-blocker-tray.desktop" << EOF
+[Desktop Entry]
+Name=Website Blocker Tray
+Comment=Website Blocker System Tray Icon
+Exec=$BIN_DIR/website-blocker-tray
+StartupNotify=false
+Terminal=false
+Type=Application
+Categories=Utility;
+X-GNOME-Autostart-enabled=true
+EOF
+
+    echo ""
+    echo "=== Build Complete ==="
+    echo ""
+    echo "Installed:"
+    echo "  Desktop app: $DATA_DIR/desktop-app-bin/website-blocker/"
+    echo "  Tray app: $BIN_DIR/website-blocker-tray"
+    echo "  Desktop entry: $APPS_DIR/WebsiteBlocker.desktop"
+    echo ""
+    echo "Tray app will start automatically on login."
+    echo "To start it now: $BIN_DIR/website-blocker-tray &"
+    echo ""
+    exit 0
+fi
 
 echo "=== Website Blocker Installation ==="
 echo ""
@@ -43,6 +138,12 @@ echo "Installing desktop-app dependencies..."
 cd "$SCRIPT_DIR/desktop-app"
 uv sync
 DESKTOP_PYTHON="$SCRIPT_DIR/desktop-app/.venv/bin/python"
+cd "$SCRIPT_DIR"
+
+# Install tray dependencies
+echo "Installing tray dependencies..."
+cd "$SCRIPT_DIR/tray"
+uv sync
 cd "$SCRIPT_DIR"
 
 # Update native messaging manifests with correct paths
@@ -138,10 +239,14 @@ echo "     - Click 'Load unpacked'"
 echo "     - Select $DATA_DIR/extension/"
 echo "     - Enable in incognito mode in extension settings"
 echo ""
-echo "3. Launch the desktop app:"
-echo "   $DESKTOP_PYTHON $SCRIPT_DIR/desktop-app/main.py"
+echo "3. Build and install desktop/tray executables (optional):"
+echo "   ./install.sh --build"
 echo ""
-echo "4. Check daemon status:"
+echo "4. Launch the desktop app:"
+echo "   $DESKTOP_PYTHON $SCRIPT_DIR/desktop-app/main.py"
+echo "   Or if built: ~/.local/bin/website-blocker"
+echo ""
+echo "5. Check daemon status:"
 echo "   systemctl --user status website-blocker"
 echo "   journalctl --user -u website-blocker -f"
 echo ""
