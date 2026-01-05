@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6e2iRfjdXtDjx4qRQtP4BhAzegilM9P9dgNDJSQQQNGlXgO7IyWlri6uY8O1+s7px5SJKZFg8pPESHckV62Qbs8VETJPjaMHaFZIHkIVSZXmLqJhNmizPvTayQuA1CYuaRtGz6vMdZVA8aFpG4xFwFC4Fnvl8oaj3nOgE3C1vQ3X34PfVTCsf2OUptM+KVS3grQuTXQ8R5w51mSKRq+uDQr719gjTvoIA5BjFEFv67cyBztk5YwJ0KplWTS9V1fixdVS0PMq1s1HbpjwzkT2Gf/XEDdfLhhP3W3Px8qgXGi3Vrb1ecPysvQu3hzpaf5uJ24R7d7nsfk3AfUr3dzkLwIDAQAB",
   "name": "Website Blocker",
   "version": "1.0.0",
   "description": "Blocks websites during focus periods - works with the Website Blocker daemon",

@@ -176,7 +176,7 @@ for chrome_dir in \
   "path": "$NATIVE_HOST_PATH",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://*/"
+    "chrome-extension://djngojgikpdalhbiimclpdcfehcphcim/"
   ]
 }
 EOF
