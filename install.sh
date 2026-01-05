@@ -191,7 +191,8 @@ mkdir -p "$(dirname "$SERVICE_FILE")"
 cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=Website Blocker Daemon
-After=network.target
+After=wayland-session@hyprland.desktop.target
+BindsTo=wayland-session@hyprland.desktop.target
 StartLimitIntervalSec=0
 
 [Service]
@@ -210,7 +211,7 @@ KillSignal=SIGTERM
 SendSIGKILL=no
 
 [Install]
-WantedBy=default.target
+WantedBy=wayland-session@hyprland.desktop.target
 EOF
 
 # Reload systemd
