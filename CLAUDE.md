@@ -277,6 +277,35 @@ Location: `~/.config/website-blocker/watchdog_state.json`
 - **Host script**: `extension/native-host/host.py`
 - **Permissions**: nativeMessaging in manifest.json
 
+### Extension ID and Key (CRITICAL)
+
+The extension manifest (`extension/manifest.json`) includes a **"key"** field:
+```json
+{
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6e2iRfjdXt..."
+}
+```
+
+**Why this exists:**
+- Chrome generates random extension IDs for unpacked extensions
+- Native messaging requires the exact extension ID in `allowed_origins` (NO wildcards supported)
+- The "key" field gives a **stable, deterministic extension ID**: `djngojgikpdalhbiimclpdcfehcphcim`
+- This ID is derived from the SHA256 hash of the public key
+- **DO NOT REMOVE THIS KEY** - native messaging will fail and browsers will be killed
+
+The native messaging manifest must use this exact ID:
+```json
+{
+  "allowed_origins": ["chrome-extension://djngojgikpdalhbiimclpdcfehcphcim/"]
+}
+```
+
+**What happens if this breaks:**
+- Extension can't connect to native host
+- Extension falls back to hash-based PID (10 digits)
+- Daemon sees different PID than Hyprland reports
+- All browsers get killed even with extension installed
+
 ## Configuration Files
 
 - Config: `~/.config/website-blocker/config.json`
@@ -295,6 +324,32 @@ Location: `~/.config/website-blocker/watchdog_state.json`
 - Build with: `./install.sh --build`
 - Tray app starts automatically on login via autostart entry
 - Desktop app starts tray app if not running (production mode only)
+
+### Systemd Service Dependencies (IMPORTANT)
+
+The daemon service (`~/.config/systemd/user/website-blocker.service`) has specific dependencies:
+
+```ini
+[Unit]
+After=wayland-session@hyprland.desktop.target
+BindsTo=wayland-session@hyprland.desktop.target
+
+[Install]
+WantedBy=wayland-session@hyprland.desktop.target
+```
+
+**Why these dependencies are critical:**
+- Daemon uses `hyprctl clients -j` to list browser windows
+- `hyprctl` only works after Hyprland is fully initialized
+- Starting too early (e.g., with `network.target`) causes `hyprctl` to fail
+- Failed `hyprctl` → empty window list → daemon can't detect browsers
+- `BindsTo=` ensures daemon stops when Hyprland session ends
+
+**What happens if this is wrong:**
+- Daemon starts before Hyprland is ready
+- All `hyprctl` calls return errors
+- Daemon thinks no browsers are running
+- Browser enforcement completely broken until manual daemon restart
 
 ### Config Fields (config.json security section)
 
