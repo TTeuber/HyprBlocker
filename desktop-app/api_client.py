@@ -288,6 +288,25 @@ class DaemonClient:
         except requests.RequestException as e:
             raise Exception(f"Request failed: {str(e)}")
 
+    def extend_block_lock(self, block_id: int, lock_until: str) -> Optional[Block]:
+        """Extend lock duration for a block (allowed even when locked).
+
+        Args:
+            block_id: Block ID to extend lock for
+            lock_until: ISO datetime string - must be later than current lock
+
+        Returns:
+            Updated Block or None if failed
+        """
+        try:
+            response = self._request('PATCH', f'/api/blocks/{block_id}/extend-lock', json={'lock_until': lock_until})
+            if response.status_code == 200:
+                return Block(**response.json())
+            else:
+                raise Exception(f"Failed to extend block lock: {response.text}")
+        except requests.RequestException as e:
+            raise Exception(f"Request failed: {str(e)}")
+
     def get_stats(self) -> Optional[Stats]:
         """Get blocking statistics.
 

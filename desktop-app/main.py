@@ -129,6 +129,24 @@ class API:
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
+    def extend_block_lock(self, block_id: int, lock_until: str) -> dict:
+        """Extend lock duration for a block (allowed even when locked).
+
+        Args:
+            block_id: Block ID to extend lock for
+            lock_until: ISO datetime string - must be later than current lock
+
+        Returns:
+            dict with success status
+        """
+        try:
+            block = self.client.extend_block_lock(block_id, lock_until)
+            if block:
+                return {'success': True}
+            return {'success': False, 'error': 'Failed to extend block lock'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
     def get_stats(self) -> dict:
         """Get blocking statistics."""
         stats = self.client.get_stats()

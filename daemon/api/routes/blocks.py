@@ -1,6 +1,6 @@
 """Block CRUD API routes."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Block
 from lock_manager import get_lock_manager
-from ..schemas import BlockCreate, BlockUpdate, BlockStrictUpdate, BlockResponse
+from time_verifier import get_time_verifier
+from ..schemas import BlockCreate, BlockUpdate, BlockStrictUpdate, BlockLockExtendRequest, BlockResponse
 from ..deps import get_session, check_block_lock
 
 router = APIRouter(prefix="/api", tags=["blocks"])
@@ -213,6 +214,68 @@ async def update_block_strict(
         existing = parse_rules_to_set(db_block.websites_allowed)
         to_remove = parse_rules_to_set(updates.websites_allowed_remove)
         db_block.websites_allowed = set_to_rules(existing - to_remove)
+
+    await session.commit()
+    await session.refresh(db_block)
+
+    return BlockResponse(**db_block.to_dict())
+
+
+@router.patch("/blocks/{block_id}/extend-lock", response_model=BlockResponse)
+async def extend_block_lock(
+    block_id: int,
+    request: BlockLockExtendRequest,
+    session: AsyncSession = Depends(get_session)
+):
+    """Extend lock duration for a block (allowed even when locked).
+
+    This endpoint bypasses normal lock checks because extending a lock
+    makes the block MORE restrictive (locked for longer).
+    """
+    # Get the block
+    result = await session.execute(select(Block).where(Block.id == block_id))
+    db_block = result.scalar_one_or_none()
+
+    if db_block is None:
+        raise HTTPException(status_code=404, detail="Block not found")
+
+    # Verify block is currently locked
+    if db_block.lock_mode != 'locked_until' or db_block.lock_until is None:
+        raise HTTPException(status_code=400, detail="Block is not currently locked")
+
+    # Verify system time with NTP
+    verifier = get_time_verifier()
+    if not verifier.is_system_time_valid():
+        raise HTTPException(
+            status_code=403,
+            detail="System time appears to be manipulated. Cannot extend lock."
+        )
+
+    # Parse the new lock_until
+    try:
+        new_lock_until = datetime.fromisoformat(request.lock_until)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid datetime format. Use ISO format like '2024-12-25T14:30:00'"
+        )
+
+    # Handle timezone - compare in UTC
+    current_lock_until = db_block.lock_until
+    if current_lock_until.tzinfo is None:
+        current_lock_until = current_lock_until.replace(tzinfo=timezone.utc)
+    if new_lock_until.tzinfo is None:
+        new_lock_until = new_lock_until.replace(tzinfo=timezone.utc)
+
+    # Ensure new lock time is later than current
+    if new_lock_until <= current_lock_until:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot shorten lock. New time must be later than current lock expiry."
+        )
+
+    # Update the lock_until
+    db_block.lock_until = new_lock_until
 
     await session.commit()
     await session.refresh(db_block)

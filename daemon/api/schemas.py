@@ -58,6 +58,11 @@ class BlockStrictUpdate(BaseModel):
     websites_allowed_remove: Optional[str] = None   # Newline-separated items to REMOVE from allowed
 
 
+class BlockLockExtendRequest(BaseModel):
+    """Request to extend lock duration for a block (allowed even when locked)."""
+    lock_until: str  # ISO datetime - must be later than current lock_until
+
+
 class BlockResponse(BaseModel):
     id: int
     name: str

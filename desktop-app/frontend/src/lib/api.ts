@@ -70,6 +70,11 @@ export const api = {
     return window.pywebview.api.get_block_lock_status(blockId);
   },
 
+  async extendBlockLock(blockId: number, lockUntil: string): Promise<ApiResponse> {
+    await waitForPywebview();
+    return window.pywebview.api.extend_block_lock(blockId, lockUntil);
+  },
+
   async getStats(): Promise<Stats> {
     await waitForPywebview();
     return window.pywebview.api.get_stats();

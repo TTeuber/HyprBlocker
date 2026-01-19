@@ -282,6 +282,7 @@ async def lock_settings(request: SettingsLockRequest):
     """Lock settings until a specific datetime.
 
     Uses NTP verification to prevent clock manipulation.
+    If already locked, allows extending the lock (but not shortening).
     """
     # Parse and validate lock_until
     try:
@@ -292,7 +293,7 @@ async def lock_settings(request: SettingsLockRequest):
             detail="Invalid datetime format. Use ISO format like '2024-12-25T14:30:00'"
         )
 
-    # Ensure it's in the future (use NTP time)
+    # Verify system time with NTP
     verifier = get_time_verifier()
     if not verifier.is_system_time_valid():
         raise HTTPException(
@@ -304,14 +305,31 @@ async def lock_settings(request: SettingsLockRequest):
     if lock_until.tzinfo is None:
         lock_until = lock_until.replace(tzinfo=timezone.utc)
 
-    if lock_until <= now:
-        raise HTTPException(
-            status_code=400,
-            detail="lock_until must be in the future"
-        )
+    # Check if already locked
+    config = get_config()
+    current_lock_str = config.security.settings_lock_until
+
+    if current_lock_str and is_settings_locked_ntp():
+        # Already locked - this is an EXTENSION request
+        current_lock = datetime.fromisoformat(current_lock_str)
+        if current_lock.tzinfo is None:
+            current_lock = current_lock.replace(tzinfo=timezone.utc)
+
+        if lock_until <= current_lock:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot shorten lock. New time must be later than current lock expiry."
+            )
+        # Allow extension - no need to check against 'now' since current lock is active
+    else:
+        # New lock - must be in the future
+        if lock_until <= now:
+            raise HTTPException(
+                status_code=400,
+                detail="lock_until must be in the future"
+            )
 
     # Save the lock
-    config = get_config()
     config.security.settings_lock_until = lock_until.isoformat()
     save_config(config)
     reload_config()

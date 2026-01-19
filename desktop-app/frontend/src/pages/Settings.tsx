@@ -36,6 +36,8 @@ export function Settings() {
   const [updating, setUpdating] = useState(false);
   const [lockDurationValue, setLockDurationValue] = useState(1);
   const [lockDurationUnit, setLockDurationUnit] = useState<DurationUnit>('hour');
+  const [extendDurationValue, setExtendDurationValue] = useState(1);
+  const [extendDurationUnit, setExtendDurationUnit] = useState<DurationUnit>('hour');
 
   // Load all settings on mount
   useEffect(() => {
@@ -273,6 +275,45 @@ export function Settings() {
     }
   };
 
+  const handleExtendSettingsLock = async () => {
+    setUpdating(true);
+    try {
+      // Calculate new lock_until based on current time + extension duration
+      const now = new Date();
+      let milliseconds = 0;
+
+      switch (extendDurationUnit) {
+        case 'minute':
+          milliseconds = extendDurationValue * 60 * 1000;
+          break;
+        case 'hour':
+          milliseconds = extendDurationValue * 60 * 60 * 1000;
+          break;
+        case 'day':
+          milliseconds = extendDurationValue * 24 * 60 * 60 * 1000;
+          break;
+        case 'month':
+          milliseconds = extendDurationValue * 30 * 24 * 60 * 60 * 1000;
+          break;
+      }
+
+      const newLockUntil = new Date(now.getTime() + milliseconds);
+      const result = await api.lockSettings(newLockUntil.toISOString());
+
+      if (result.success) {
+        showToast("Settings lock extended", "success");
+        await loadSettingsLock();
+      } else {
+        showToast(result.error || "Failed to extend lock", "error");
+      }
+    } catch (error) {
+      console.error("Failed to extend settings lock:", error);
+      showToast("Failed to extend settings lock", "error");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const formatRemainingTime = (seconds: number | null): string => {
     if (seconds === null || seconds <= 0) return "";
     const hours = Math.floor(seconds / 3600);
@@ -444,6 +485,41 @@ export function Settings() {
                     Until: {new Date(settingsLock.lockUntil).toLocaleString()}
                   </p>
                 )}
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-sm text-text-secondary mb-3">
+                    Extend the lock duration:
+                  </p>
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={extendDurationValue}
+                      onChange={(e) => setExtendDurationValue(parseInt(e.target.value) || 1)}
+                      disabled={updating}
+                      className="w-20"
+                    />
+                    <Select
+                      value={extendDurationUnit}
+                      onChange={(e) => setExtendDurationUnit(e.target.value as DurationUnit)}
+                      disabled={updating}
+                    >
+                      <option value="minute">Minutes</option>
+                      <option value="hour">Hours</option>
+                      <option value="day">Days</option>
+                      <option value="month">Months</option>
+                    </Select>
+                    <Button
+                      onClick={handleExtendSettingsLock}
+                      disabled={updating}
+                      variant="secondary"
+                    >
+                      Extend Lock
+                    </Button>
+                  </div>
+                  <p className="text-xs text-text-secondary mt-2">
+                    You can extend the lock, but cannot shorten or remove it.
+                  </p>
+                </div>
               </div>
             ) : (
               <div>

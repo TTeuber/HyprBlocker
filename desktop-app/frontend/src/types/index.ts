@@ -198,6 +198,7 @@ declare global {
         update_block_strict(block_id: number, updates: BlockStrictUpdateInput): Promise<ApiResponse>;
         delete_block(block_id: number): Promise<ApiResponse>;
         get_block_lock_status(block_id: number): Promise<LockStatusResponse>;
+        extend_block_lock(block_id: number, lock_until: string): Promise<ApiResponse>;
         get_stats(): Promise<Stats>;
         get_browsers(): Promise<BrowserStatus[]>;
         is_daemon_running(): Promise<boolean>;
