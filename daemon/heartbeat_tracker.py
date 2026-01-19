@@ -36,6 +36,9 @@ class ExtensionInstance:
 class HeartbeatTracker:
     """Tracks browser extension heartbeats to ensure compliance."""
 
+    # Grace period for newly-seen PIDs (safety net for native messaging race)
+    NEW_BROWSER_GRACE_SECONDS = 10
+
     def __init__(self):
         # {pid: BrowserHeartbeat}
         self.active_browsers: Dict[int, BrowserHeartbeat] = {}
@@ -43,6 +46,8 @@ class HeartbeatTracker:
         self.extension_instances: Dict[int, Dict[str, ExtensionInstance]] = {}
         # Grace period for adding extensions
         self._grace_period_until: Optional[datetime] = None
+        # Track when PIDs are first seen from Hyprland (for per-PID grace period)
+        self._first_seen_pids: Dict[int, datetime] = {}
 
     @property
     def heartbeat_timeout(self) -> int:
@@ -71,6 +76,30 @@ class HeartbeatTracker:
         if self._grace_period_until is None:
             return False
         return datetime.now() < self._grace_period_until
+
+    def _is_new_browser(self, pid: int) -> bool:
+        """Check if PID was first seen recently (within per-PID grace period).
+
+        Args:
+            pid: The browser process ID
+
+        Returns:
+            True if this is a new PID or was first seen within NEW_BROWSER_GRACE_SECONDS
+        """
+        if pid not in self._first_seen_pids:
+            return True
+        age = (datetime.now() - self._first_seen_pids[pid]).total_seconds()
+        return age < self.NEW_BROWSER_GRACE_SECONDS
+
+    def _register_first_seen(self, pid: int) -> None:
+        """Track when we first saw a PID from Hyprland.
+
+        Args:
+            pid: The browser process ID
+        """
+        if pid not in self._first_seen_pids:
+            self._first_seen_pids[pid] = datetime.now()
+            logger.info(f"First time seeing browser PID {pid}, starting {self.NEW_BROWSER_GRACE_SECONDS}s grace period")
 
     def get_grace_period_remaining(self) -> Optional[int]:
         """Get remaining seconds in the grace period.
@@ -158,13 +187,26 @@ class HeartbeatTracker:
         Returns:
             Set of PIDs for browsers that haven't sent heartbeats within the timeout.
         """
-        # During grace period, all browsers are considered compliant
+        # During global grace period, all browsers are considered compliant
         if self.is_grace_period_active():
             logger.debug("Grace period active - all browsers considered compliant")
             return set()
 
         compliant = self.get_compliant_browsers()
-        return all_browser_pids - compliant
+        non_compliant = all_browser_pids - compliant
+
+        # Filter out PIDs that are still in their new-browser grace period
+        truly_non_compliant = set()
+        for pid in non_compliant:
+            # Register first-seen time for new PIDs
+            self._register_first_seen(pid)
+
+            if self._is_new_browser(pid):
+                logger.debug(f"PID {pid} is new (within {self.NEW_BROWSER_GRACE_SECONDS}s grace period), skipping")
+            else:
+                truly_non_compliant.add(pid)
+
+        return truly_non_compliant
 
     def get_total_extension_window_count(self, pid: int) -> Optional[int]:
         """Get the total window count from all extension instances for a PID.
@@ -264,6 +306,16 @@ class HeartbeatTracker:
             # Remove empty dicts
             if not self.extension_instances[pid]:
                 del self.extension_instances[pid]
+
+        # Clean up old first-seen entries (keep for 2 minutes max)
+        first_seen_timeout = timedelta(seconds=120)
+        stale_first_seen = [
+            pid for pid, seen in self._first_seen_pids.items()
+            if now - seen > first_seen_timeout
+        ]
+        for pid in stale_first_seen:
+            del self._first_seen_pids[pid]
+            logger.debug(f"Removed stale first-seen entry for PID {pid}")
 
     def get_browser_status(self, pid: int) -> Optional[Dict]:
         """Get the status of a specific browser.

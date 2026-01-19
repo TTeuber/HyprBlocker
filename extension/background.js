@@ -48,43 +48,71 @@ async function initialize() {
 
 /**
  * Get browser PID via native messaging
+ * Waits for native messaging to complete or timeout before returning.
+ * This prevents the race condition where first heartbeat uses fallback PID.
  */
 async function getBrowserPID() {
-    // Set fallback PID immediately so heartbeats work
-    browserPID = hashCode(chrome.runtime.id + Date.now());
-    console.log('Initial fallback PID:', browserPID);
+    const NATIVE_MSG_TIMEOUT = 3000; // 3 second timeout for native messaging
 
-    // Try to get real PID from native messaging (will override fallback if successful)
-    try {
-        const port = chrome.runtime.connectNative('com.websiteblocker.host');
+    return new Promise((resolve) => {
+        let resolved = false;
 
-        port.onMessage.addListener((message) => {
-            if (message.pid) {
-                browserPID = message.pid;
-                console.log('✅ Using real browser PID from native host:', browserPID);
-                console.log('Extension ID:', chrome.runtime.id);
+        const doResolve = (pid, source) => {
+            if (!resolved) {
+                resolved = true;
+                browserPID = pid;
+                console.log(`Browser PID set from ${source}:`, browserPID);
+                resolve(browserPID);
             }
-            if (message.error) {
-                console.error('❌ Native host error:', message.error);
-                console.warn('⚠️ Using fallback PID:', browserPID);
-            }
-        });
+        };
 
-        port.onDisconnect.addListener(() => {
-            if (chrome.runtime.lastError) {
-                console.error('❌ Native messaging disconnected:', chrome.runtime.lastError.message);
-                console.warn('⚠️ Using fallback PID:', browserPID, '- Browser may be killed!');
-                console.info('ℹ️ Extension ID:', chrome.runtime.id);
-                console.info('ℹ️ Check native messaging manifest for ID mismatch');
-            }
-        });
+        // Generate fallback PID (used if native messaging fails/times out)
+        const fallbackPID = hashCode(chrome.runtime.id + Date.now());
 
-        port.postMessage({ action: 'get_pid' });
-    } catch (error) {
-        console.error('❌ Native messaging error:', error);
-        console.warn('⚠️ Using fallback PID:', browserPID, '- Browser may be killed!');
-        console.info('ℹ️ Extension ID:', chrome.runtime.id);
-    }
+        // Timeout fallback - ensures we don't wait forever
+        const timeout = setTimeout(() => {
+            console.warn('⚠️ Native messaging timeout, using fallback PID:', fallbackPID);
+            doResolve(fallbackPID, 'timeout');
+        }, NATIVE_MSG_TIMEOUT);
+
+        try {
+            const port = chrome.runtime.connectNative('com.websiteblocker.host');
+
+            port.onMessage.addListener((message) => {
+                if (message.pid) {
+                    clearTimeout(timeout);
+                    console.log('✅ Got real browser PID from native host:', message.pid);
+                    console.log('Extension ID:', chrome.runtime.id);
+                    doResolve(message.pid, 'native messaging');
+                }
+                if (message.error) {
+                    clearTimeout(timeout);
+                    console.error('❌ Native host error:', message.error);
+                    console.warn('⚠️ Using fallback PID:', fallbackPID);
+                    doResolve(fallbackPID, 'native error');
+                }
+            });
+
+            port.onDisconnect.addListener(() => {
+                clearTimeout(timeout);
+                if (chrome.runtime.lastError) {
+                    console.error('❌ Native messaging disconnected:', chrome.runtime.lastError.message);
+                    console.warn('⚠️ Using fallback PID:', fallbackPID, '- Browser may be killed!');
+                    console.info('ℹ️ Extension ID:', chrome.runtime.id);
+                    console.info('ℹ️ Check native messaging manifest for ID mismatch');
+                }
+                doResolve(fallbackPID, 'disconnect');
+            });
+
+            port.postMessage({ action: 'get_pid' });
+        } catch (error) {
+            clearTimeout(timeout);
+            console.error('❌ Native messaging error:', error);
+            console.warn('⚠️ Using fallback PID:', fallbackPID, '- Browser may be killed!');
+            console.info('ℹ️ Extension ID:', chrome.runtime.id);
+            doResolve(fallbackPID, 'error');
+        }
+    });
 }
 
 /**

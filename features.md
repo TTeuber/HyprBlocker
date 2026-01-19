@@ -2,6 +2,11 @@
 
 - block incognito, don't need it
 
-- shouldn't be able to change lock mode of block while it is locked
-
 - better date picker UI
+
+- The ability to extend a lock, right now it isn't able to be modified during lock.
+- The ability to change the name of a block during a lock
+
+- allowance
+
+- extension for Firefox
