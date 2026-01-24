@@ -19,6 +19,7 @@ A robust website and application blocking system for Arch Linux + Hyprland that 
 - **Bypass-Resistant** - NTP verification, daemon refuses to stop during lock
 - **Statistics** - Track blocks and usage patterns
 - **Desktop GUI** - Easy configuration with native GTK app
+- **System Tray** - Quick access menu with daemon status
 
 ## Architecture
 
@@ -31,18 +32,21 @@ A robust website and application blocking system for Arch Linux + Hyprland that 
 │  - View stats   │         │   - Time verifier    │         │                 │
 └─────────────────┘         └──────────┬───────────┘         └────────▲────────┘
                                        │                              │
-                            ┌──────────▼────────────┐                │
-                            │  Browser Extension    │ Heartbeat      │
-                            │  - Blocks websites    │────────────────┘
-                            │  - Sends pulse        │  (every 30s)
-                            └───────────────────────┘
+┌─────────────────┐         ┌──────────▼────────────┐                │
+│   Tray App      │         │  Browser Extension    │ Heartbeat      │
+│   (pystray)     │         │  - Blocks websites    │────────────────┘
+│                 │         │  - Sends pulse        │  (every 30s)
+│  - Quick access │         │  - Safe search        │
+│  - Status icon  │         └───────────────────────┘
+└─────────────────┘
 ```
 
 ## Components
 
 1. **Daemon** (Python/FastAPI) - Background service running as systemd unit
 2. **Desktop App** (Python/pywebview) - GUI for configuration and monitoring
-3. **Browser Extension** (JavaScript) - Blocks sites and maintains heartbeat
+3. **Tray App** (Python/pystray) - System tray icon with quick access menu
+4. **Browser Extension** (JavaScript) - Blocks sites and maintains heartbeat
 
 ## Quick Start
 
@@ -68,9 +72,11 @@ uv sync
 
 This will:
 
+- Build desktop and tray app executables to `~/.local/bin/`
 - Copy daemon files to `~/.config/website-blocker/`
 - Copy extension to `~/.local/share/website-blocker/extension/`
 - Create systemd service file
+- Set up tray app autostart (runs on login)
 
 ### 3. Start the Daemon
 
@@ -100,9 +106,17 @@ journalctl --user -u website-blocker -f
 
 ### 5. Launch Desktop App
 
+After installation, the tray app will start automatically on login. To launch the desktop app:
+
 ```bash
+# If installed with ./install.sh --build
+website-blocker
+
+# Or run from source
 uv run python desktop-app/main.py
 ```
+
+The desktop app will automatically start the tray app if it's not already running.
 
 ## Usage
 
@@ -208,6 +222,19 @@ The "Browsers" page shows:
 **Grace Period:**
 Click "Add Extension" to start a 30-second grace period where browser enforcement is paused, giving you time to install the extension.
 
+### Tray App
+
+The tray app provides quick access to the blocker from the system tray:
+
+- **System tray icon**: Shows blocker status at a glance
+- **Quick menu**:
+  - Open Desktop App - Launch the full configuration UI
+  - Daemon Status - Check if daemon is running
+  - Quit - Exit the tray app (daemon continues running)
+- **Autostart**: Automatically starts on login via `~/.config/autostart/`
+
+The tray app is lightweight and uses the pystray library with AppIndicator backend for Wayland/Hyprland compatibility.
+
 ### Safe Search Enforcement
 
 The "Settings" page includes an option to enforce safe search on major search engines:
@@ -231,6 +258,11 @@ This feature helps prevent unwanted content in search results without blocking t
 - **Database**: `~/.config/website-blocker/blocker.db`
 - **Watchdog State**: `~/.config/website-blocker/watchdog_state.json`
 - **Extension**: `~/.local/share/website-blocker/extension/`
+- **Executables**:
+  - Desktop app: `~/.local/bin/website-blocker`
+  - Tray app: `~/.local/bin/website-blocker-tray`
+- **Autostart**: `~/.config/autostart/website-blocker-tray.desktop`
+- **Icons**: `~/.local/share/website-blocker/icons/`
 - **Logs**:
   - Daemon: `~/.config/website-blocker/daemon.log`
   - Watchdog: `~/.config/website-blocker/watchdog.log`
@@ -404,28 +436,51 @@ For a more secure solution, consider:
 Blocker/
 ├── daemon/              # Python daemon
 │   ├── main.py          # Entry point
-│   ├── api.py           # REST API
+│   ├── api/             # REST API package
+│   │   ├── __init__.py  # App creation and router wiring
+│   │   ├── app.py       # FastAPI app setup
+│   │   ├── deps.py      # Shared dependencies
+│   │   ├── schemas.py   # Pydantic models
+│   │   └── routes/      # API route handlers
+│   │       ├── blocks.py
+│   │       ├── heartbeat.py
+│   │       ├── settings.py
+│   │       └── status.py
 │   ├── blocker.py       # Blocking logic
 │   ├── scheduler.py     # Schedule checking
 │   ├── watchdog.py      # Watchdog manager
 │   ├── watchdog_runner.py  # Watchdog process entry point
 │   ├── database.py      # SQLAlchemy models
 │   ├── migrations.py    # Database migrations
-│   └── ...
+│   ├── hyprland_monitor.py  # Window monitoring
+│   ├── heartbeat_tracker.py  # Browser compliance
+│   ├── lock_manager.py  # Lock enforcement
+│   ├── time_verifier.py # NTP verification
+│   └── config.py        # Configuration management
 ├── desktop-app/         # Python + pywebview GUI
 │   ├── main.py          # Entry point
 │   ├── api_client.py    # Daemon API client
-│   └── web/             # HTML/CSS/JS frontend
+│   ├── frontend/        # React + TypeScript (Vite)
+│   └── desktop-app.spec # PyInstaller spec
+├── tray/                # System tray app
+│   ├── main.py          # Entry point
+│   └── tray-app.spec    # PyInstaller spec
 ├── extension/           # Browser extension
 │   ├── manifest.json
 │   ├── background.js
-│   └── ...
+│   ├── blocked.html
+│   ├── popup/           # Extension popup UI
+│   └── native-host/     # Native messaging host
+│       └── host.py
+├── icons/               # App icons
+│   ├── icon-desktop-*.png
+│   └── icon-tray-*.png
 ├── config/              # Configuration templates
 ├── install.sh           # Installation script
+├── reinstall.sh         # Development reinstall script
+├── CLAUDE.md            # Technical reference for Claude
 ├── README.md            # This file
-├── WATCHDOG.md          # Watchdog documentation
-├── STATUS.md            # Current project status
-└── PROJECT_SPEC.md      # Original specification
+└── documentation/       # Additional documentation
 ```
 
 ## Development
@@ -441,9 +496,24 @@ uv run python main.py
 cd desktop-app
 uv run python main.py
 
+# Start tray app
+cd tray
+uv run python main.py
+
 # Load extension in browser
 # Firefox: about:debugging
 # Chrome: chrome://extensions
+```
+
+### Building Executables
+
+```bash
+# Build both desktop and tray apps
+./install.sh --build
+
+# Executables will be created in:
+# - ~/.local/bin/website-blocker (desktop app)
+# - ~/.local/bin/website-blocker-tray (tray app)
 ```
 
 ### Database Migrations
