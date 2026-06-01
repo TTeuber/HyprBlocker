@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 
 from config import get_config, save_config, reload_config
+from service_enforcer import ensure_service_enabled
 from time_verifier import get_time_verifier
 from watchdog import WatchdogManager, is_settings_locked_ntp
 from ..schemas import (
@@ -151,6 +152,8 @@ async def update_shutdown_prevention_status(request: ShutdownPreventionUpdateReq
     reload_config()
 
     if request.enabled:
+        # Immediately restore the enable symlink in case it was removed
+        ensure_service_enabled()
         logger.info("Shutdown prevention ENABLED via UI")
     else:
         logger.warning("Shutdown prevention DISABLED via UI")

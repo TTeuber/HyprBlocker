@@ -44,6 +44,7 @@ SIBLING_CHECK_INTERVAL = 10  # seconds
 HEARTBEAT_INTERVAL = 30  # seconds
 HEARTBEAT_TIMEOUT = 60  # seconds
 DAEMON_FAIL_THRESHOLD = 3  # consecutive failures before restart
+SERVICE_ENABLE_CHECK_INTERVAL = 30  # seconds — how often to re-check the enable symlink
 
 
 def generate_obfuscated_name() -> str:
@@ -364,6 +365,7 @@ class Watchdog:
         last_daemon_check = 0
         last_sibling_check = 0
         last_heartbeat = 0
+        last_enable_check = 0
 
         while self._running:
             now = time.time()
@@ -400,6 +402,15 @@ class Watchdog:
             if now - last_heartbeat >= HEARTBEAT_INTERVAL:
                 last_heartbeat = now
                 self._update_heartbeat()
+
+            # Prevent `systemctl --user disable` from sticking.
+            # Watchdogs only exist when shutdown prevention is on, so no need
+            # to re-read that flag here. Skip if a legitimate shutdown is underway.
+            if now - last_enable_check >= SERVICE_ENABLE_CHECK_INTERVAL:
+                last_enable_check = now
+                if not state.shutdown_requested:
+                    from service_enforcer import ensure_service_enabled
+                    ensure_service_enabled()
 
             time.sleep(1)
 

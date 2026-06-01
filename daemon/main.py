@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Main entry point for the website blocker daemon."""
 
-import asyncio
 import logging
 import os
 import signal
@@ -24,6 +23,7 @@ from heartbeat_tracker import get_heartbeat_tracker
 from hyprland_monitor import init_hyprland_monitor, get_hyprland_monitor
 from lock_manager import init_lock_manager, get_lock_manager
 from scheduler import init_scheduler, get_scheduler
+from service_enforcer import ensure_service_enabled
 from watchdog import WatchdogManager
 
 # Set up logging
@@ -55,7 +55,7 @@ logger = setup_logging()
 # Global state
 _scheduler: AsyncIOScheduler = None
 _session_factory = None
-_shutdown_event = asyncio.Event()
+_server: uvicorn.Server = None  # Uvicorn server instance; signal handler sets _server.should_exit
 _shutdown_prevention_cache: bool = False  # Cached shutdown prevention state for signal handler
 _watchdog_manager: WatchdogManager = None  # Watchdog manager instance
 
@@ -82,6 +82,10 @@ async def schedule_check_job():
         # Update cached shutdown prevention state for signal handler
         config = get_config()
         _shutdown_prevention_cache = config.security.shutdown_prevention_enabled
+
+        # Prevent `systemctl --user disable` from sticking
+        if _shutdown_prevention_cache:
+            ensure_service_enabled()
 
     except Exception as e:
         logger.error(f"Error in schedule check job: {e}")
@@ -118,10 +122,11 @@ def handle_signal(signum, frame):
             )
         except Exception:
             pass
-        return  # Refuse to stop
+        return  # Refuse to stop — uvicorn loop keeps running because we own the signal handlers
 
     logger.info(f"Received signal {signum}, shutting down...")
-    _shutdown_event.set()
+    if _server is not None:
+        _server.should_exit = True
 
 
 @asynccontextmanager
@@ -185,8 +190,13 @@ async def lifespan(app):
     # Shutdown
     logger.info("Shutting down daemon")
 
-    # Signal watchdogs to shutdown (they will check settings lock themselves)
-    if _watchdog_manager:
+    # Signal watchdogs to shutdown only when shutdown prevention is off.
+    # If prevention is on, the legitimate off-switch is the settings API
+    # (update_shutdown_prevention_status), which disables watchdogs directly before
+    # allowing the daemon to stop.  We must not tear down watchdogs here — they are
+    # the very mechanism keeping the daemon alive after an unexpected crash/kill.
+    config = get_config()
+    if _watchdog_manager and not config.security.shutdown_prevention_enabled:
         _watchdog_manager.signal_shutdown()
         logger.info("Signaled watchdog shutdown")
 
@@ -201,22 +211,33 @@ app.router.lifespan_context = lifespan
 
 def main():
     """Main entry point."""
+    global _server
+
     config = get_config()
 
-    # Set up signal handlers
+    # Build the uvicorn server object before installing our signal handlers so
+    # we can store it in _server first (signal handler needs the reference).
+    uvicorn_config = uvicorn.Config(
+        app,
+        host=config.daemon.host,
+        port=config.daemon.port,
+        log_level=config.daemon.log_level.lower(),
+        access_log=False
+    )
+    _server = uvicorn.Server(uvicorn_config)
+
+    # Suppress uvicorn's own signal-handler installation so our handlers below
+    # remain authoritative for the lifetime of the process.
+    _server.install_signal_handlers = lambda: None
+
+    # Install our handlers AFTER creating the server (so _server is populated).
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
 
     logger.info(f"Starting daemon on {config.daemon.host}:{config.daemon.port}")
 
     try:
-        uvicorn.run(
-            app,
-            host=config.daemon.host,
-            port=config.daemon.port,
-            log_level=config.daemon.log_level.lower(),
-            access_log=False
-        )
+        _server.run()
     except OSError as e:
         if "Address already in use" in str(e):
             logger.critical(f"Cannot bind to port {config.daemon.port}: Address already in use")
