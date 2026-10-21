@@ -16,7 +16,7 @@ class BrowserHeartbeat:
     last_seen: datetime
     incognito_last_seen: datetime | None = None
     incognito_enabled: bool = True
-    window_mismatch_count: int = 0  # Consecutive mismatches with Hyprland count
+    window_mismatch_count: int = 0  # Consecutive mismatches with compositor count
 
 
 @dataclass
@@ -40,7 +40,7 @@ class HeartbeatTracker:
         self.extension_instances: dict[int, dict[str, ExtensionInstance]] = {}
         # Grace period for adding extensions
         self._grace_period_until: datetime | None = None
-        # Track when PIDs are first seen from Hyprland (for per-PID grace period)
+        # Track when PIDs are first seen from the compositor (for per-PID grace period)
         self._first_seen_pids: dict[int, datetime] = {}
 
     @property
@@ -86,7 +86,7 @@ class HeartbeatTracker:
         return age < self.NEW_BROWSER_GRACE_SECONDS
 
     def _register_first_seen(self, pid: int) -> None:
-        """Track when we first saw a PID from Hyprland.
+        """Track when we first saw a PID from the compositor.
 
         Args:
             pid: The browser process ID

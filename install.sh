@@ -177,8 +177,8 @@ mkdir -p "$(dirname "$SERVICE_FILE")"
 cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=HyprBlocker Daemon
-After=wayland-session@hyprland.desktop.target
-BindsTo=wayland-session@hyprland.desktop.target
+After=graphical-session.target
+BindsTo=graphical-session.target
 StartLimitIntervalSec=0
 
 [Service]
@@ -199,7 +199,7 @@ KillSignal=SIGTERM
 SendSIGKILL=no
 
 [Install]
-WantedBy=wayland-session@hyprland.desktop.target
+WantedBy=graphical-session.target
 EOF
 
 # Reload systemd

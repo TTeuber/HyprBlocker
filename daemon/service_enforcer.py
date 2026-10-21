@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "hyprblocker.service"
 # Must match WantedBy= in the canonical unit (see daemon.system_assets).
-WANTED_BY_TARGET = "wayland-session@hyprland.desktop.target"
+WANTED_BY_TARGET = "graphical-session.target"
 
 _SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
 _WANTS_SYMLINK = _SYSTEMD_USER_DIR / f"{WANTED_BY_TARGET}.wants" / SERVICE_NAME

@@ -59,7 +59,7 @@ MIN_TICK_SECONDS = 5.0
 MAX_TICK_SECONDS = 120.0
 
 # The compositor process whose presence defines "a user session exists" (R7).
-SESSION_PROCESS_NAMES = ["Hyprland"]
+SESSION_PROCESS_NAMES = ["Hyprland", "niri"]
 
 
 def _pending_changes_path() -> Path:

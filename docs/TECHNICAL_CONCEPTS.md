@@ -34,8 +34,8 @@ Common targets:
 - `default.target` - System has reached the default runlevel
 - `graphical.target` - GUI is available
 
-For Wayland compositors like Hyprland, systemd creates session-specific targets:
-- `wayland-session@hyprland.desktop.target` - Hyprland session is fully initialized
+For Wayland compositors, systemd exposes `graphical-session.target` once the
+graphical session is initialized. Hyprland and Niri are both supported.
 
 #### The Original Configuration
 
@@ -55,10 +55,15 @@ This means:
 
 #### Why This Failed
 
-The daemon depends on **Hyprland** being fully initialized because it uses `hyprctl` (Hyprland's control utility) to:
+The daemon depends on the compositor being fully initialized because it uses
+compositor IPC to:
 1. List all open windows
 2. Find browser windows by their window class
 3. Get the process ID (PID) of each browser window
+
+Hyprland uses `hyprctl clients -j`; Niri uses `niri msg -j windows`. Niri's
+`app_id` is normalized to the same internal window-class field used by the
+application rules, and its numeric window ID is used for close actions.
 
 **Timeline of what happened:**
 ```
@@ -78,31 +83,31 @@ The daemon started **too early** - before Hyprland was ready.
 
 #### The Fix
 
-Change the systemd dependencies to wait for Hyprland:
+Change the systemd dependencies to wait for the graphical session:
 
 ```ini
 [Unit]
-After=wayland-session@hyprland.desktop.target
-BindsTo=wayland-session@hyprland.desktop.target
+After=graphical-session.target
+BindsTo=graphical-session.target
 
 [Install]
-WantedBy=wayland-session@hyprland.desktop.target
+WantedBy=graphical-session.target
 ```
 
 **What each directive does:**
 
-- **After=wayland-session@hyprland.desktop.target**
-  - "Don't start until Hyprland session is fully initialized"
-  - Ensures hyprctl will work when daemon starts
+- **After=graphical-session.target**
+  - "Don't start until the Wayland session is fully initialized"
+  - Ensures compositor IPC will work when the daemon starts
 
-- **BindsTo=wayland-session@hyprland.desktop.target**
-  - "My lifecycle is bound to Hyprland's session"
-  - If Hyprland stops (logout), daemon stops too
+- **BindsTo=graphical-session.target**
+  - "My lifecycle is bound to the graphical session"
+  - If the compositor session stops (logout), daemon stops too
   - Prevents daemon from running without Hyprland
 
-- **WantedBy=wayland-session@hyprland.desktop.target**
-  - "Auto-start when Hyprland session starts"
-  - Creates a symlink in `~/.config/systemd/user/wayland-session@hyprland.desktop.target.wants/`
+- **WantedBy=graphical-session.target**
+  - "Auto-start when the graphical session starts"
+  - Creates a symlink in `~/.config/systemd/user/graphical-session.target.wants/`
 
 #### Key Concepts
 
@@ -114,11 +119,11 @@ WantedBy=wayland-session@hyprland.desktop.target
 **Service Binding**
 - `BindsTo=` creates a tight coupling between services
 - Useful for services that are useless without their dependency
-- Example: A Hyprland-specific daemon is useless if Hyprland isn't running
+- Example: a compositor-specific daemon is useless if the graphical session isn't running
 
 **Target Selection**
 - Generic targets like `default.target` start very early
-- Specific targets like `wayland-session@hyprland.desktop.target` start later
+- `graphical-session.target` starts after the graphical session is ready
 - Always use the most specific target that matches your dependency
 
 #### Verification
@@ -130,7 +135,7 @@ ls -l ~/.config/systemd/user/*.target.wants/hyprblocker.service
 
 After the fix, you should see:
 ```
-wayland-session@hyprland.desktop.target.wants/hyprblocker.service
+graphical-session.target.wants/hyprblocker.service
 ```
 
 ---
@@ -390,7 +395,7 @@ Now the IDs match → native messaging works → real PID retrieved → browser 
 ### Systemd Startup (Issue 1)
 
 **Problem**: Daemon started before Hyprland was ready
-**Fix**: Use `wayland-session@hyprland.desktop.target` instead of `network.target`
+**Fix**: Use `graphical-session.target` instead of `network.target`
 **Lesson**: Always use the most specific dependency target that matches your actual requirement
 
 ### Native Messaging (Issue 2)

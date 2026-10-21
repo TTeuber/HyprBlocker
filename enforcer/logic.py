@@ -33,7 +33,8 @@ class GraceWindows:
 
     ``boot_grace_seconds`` is measured directly on CLOCK_MONOTONIC (which counts
     from boot), covering the window before the user daemon has had any chance to
-    start. ``login_grace_seconds`` starts when a Hyprland session first appears.
+    start. ``login_grace_seconds`` starts when a supported compositor session first
+    appears.
     """
 
     boot_grace_seconds: float = 300.0

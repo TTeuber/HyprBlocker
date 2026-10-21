@@ -5,9 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![Platform](https://img.shields.io/badge/Platform-Linux%20%2B%20Hyprland-1793D1?logo=archlinux&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Linux%20%2B%20Wayland-1793D1?logo=archlinux&logoColor=white)
 
-A self-control website and application blocker for Linux + Hyprland, built around a **tamper-resistant daemon**. Blocks distracting sites and apps on a schedule, and is deliberately hard to switch off in a moment of weakness — watchdog processes, NTP-verified time locks, and browser enforcement all work to keep the block in place until it's supposed to end.
+A self-control website and application blocker for Linux + Hyprland or Niri, built around a **tamper-resistant daemon**. Blocks distracting sites and apps on a schedule, and is deliberately hard to switch off in a moment of weakness — watchdog processes, NTP-verified time locks, and browser enforcement all work to keep the block in place until it's supposed to end.
 
 ---
 ![Dashboard](docs/screenshots/HyprBlocker_Dashboard.png)
@@ -24,11 +24,11 @@ Most website blockers are trivially bypassed: kill the process, change the clock
 | Change the system clock to end a lock early | Lock expiry is verified against **NTP time**, not the local clock |
 | Disable or remove the browser extension | Daemon tracks extension heartbeats and **closes any browser** that stops reporting (60s timeout) |
 | Use incognito mode | Extension reports incognito status; enforcement requires it to be enabled |
-| Spoof the extension's identity | Native messaging host verifies the real browser PID against Hyprland's window list |
+| Spoof the extension's identity | Native messaging host verifies the real browser PID against the compositor's window list |
 | Edit settings during a block | Locks are tightening-only: stricter rules and protections can still be *added*, but nothing can be loosened until the lock expires |
 | Edit the unit, code, or database on disk | Optional [root-owned mode](#root-owned-architecture-optional-opt-in) moves code and enforcement state behind sudo; a root enforcer service repairs tampering and delays any loosening change by 24–48h |
 
-The design principle throughout: **the daemon is the source of truth and the extension is untrusted**. In-browser blocking is a convenience layer; the real enforcement is the daemon killing non-compliant browsers via Hyprland IPC. And when anything fails — network, database, NTP — the system **fails closed** (blocks) rather than open.
+The design principle throughout: **the daemon is the source of truth and the extension is untrusted**. In-browser blocking is a convenience layer; the real enforcement is the daemon killing non-compliant browsers via compositor IPC. And when anything fails — network, database, NTP — the system **fails closed** (blocks) rather than open.
 
 It's equally honest about what it *can't* stop — see [Limitations](#limitations).
 
@@ -40,7 +40,7 @@ It's equally honest about what it *can't* stop — see [Limitations](#limitation
 
 - **Website blocking** — domain, subdomain, wildcard (`*.reddit.com`), and path-specific (`youtube.com/shorts`) patterns
 - **Allow-list exceptions** — block all of Reddit except `reddit.com/r/programming`
-- **App blocking** — closes blocked applications via Hyprland IPC (window-class matching)
+- **App blocking** — closes blocked applications via Hyprland or Niri IPC (window-class/app-id matching)
 - **Scheduling** — always-on or time ranges per weekday (e.g. weekdays 9–5)
 - **Lock mode** — block configuration becomes read-only while active
 - **Settings lock** — freeze settings until a chosen date/time, NTP-verified; tightening-only, so protections can still be enabled while locked
@@ -61,7 +61,7 @@ It's equally honest about what it *can't* stop — see [Limitations](#limitation
 
 ```
 ┌─────────────────┐         ┌──────────────────────┐         ┌─────────────────┐
-│  Desktop App    │  HTTP   │   Daemon (systemd)   │ Hyprland│   Applications  │
+│  Desktop App    │  HTTP   │   Daemon (systemd)   │ Wayland │   Applications  │
 │  (pywebview +   │◄───────►│   - FastAPI server   │  IPC    │   & Browsers    │
 │   React GUI)    │         │   - Block scheduler  │────────►│                 │
 │                 │         │   - Lock enforcer    │         │                 │
@@ -88,7 +88,7 @@ Deeper dives: [Watchdog system](docs/WATCHDOG.md) · [Systemd ordering & native 
 
 ## Quick Start
 
-Requires Arch Linux (or similar) with Hyprland, [uv](https://docs.astral.sh/uv/), and a Chromium- or Firefox-based browser.
+Requires Arch Linux (or similar) with Hyprland or Niri, [uv](https://docs.astral.sh/uv/), and a Chromium- or Firefox-based browser.
 
 ### 1. Install dependencies
 
@@ -237,7 +237,10 @@ CI runs all of the above on every push (see `.github/workflows/ci.yml`).
 ```bash
 curl http://127.0.0.1:8765/api/status | python3 -m json.tool   # daemon alive?
 curl http://127.0.0.1:8765/api/browsers                        # extension heartbeats
-hyprctl clients -j | jq '.[] | {class, pid, title}'            # what Hyprland sees
+# Hyprland:
+hyprctl clients -j | jq '.[] | {class, pid, title}'
+# Niri:
+niri msg -j windows | jq '.[] | {app_id, pid, title}'
 journalctl --user -u hyprblocker -n 50 --no-pager          # recent daemon logs
 ```
 
@@ -268,4 +271,4 @@ are the same action.
 
 ---
 
-Built for personal use on Arch Linux + Hyprland
+Built for personal use on Arch Linux + Hyprland or Niri
