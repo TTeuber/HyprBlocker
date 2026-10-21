@@ -31,6 +31,9 @@ def test_user_unit_uses_isolated_interpreter_and_root_layout():
     assert "HYPRBLOCKER_LAYOUT=root" in unit
     assert sa.VENV_PYTHON in unit
     assert "PYTHONPATH=" in unit  # explicitly cleared
+    assert "After=graphical-session.target" in unit
+    assert "BindsTo=graphical-session.target" in unit
+    assert "WantedBy=graphical-session.target" in unit
 
 
 def test_enforcer_unit_runs_as_root_isolated():

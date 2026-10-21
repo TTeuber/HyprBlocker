@@ -13,6 +13,10 @@ from daemon.heartbeat_tracker import get_heartbeat_tracker
 logger = logging.getLogger(__name__)
 
 
+class CompositorIPCError(RuntimeError):
+    """Raised when no supported compositor can provide window state."""
+
+
 class CompositorMonitor:
     """Monitor windows through Hyprland or Niri IPC."""
 
@@ -23,13 +27,14 @@ class CompositorMonitor:
             session_factory: Async session factory for logging events
         """
         self._session_factory = session_factory
+        self._compositor: str | None = None
 
     @property
     def browser_classes(self) -> list[str]:
         """Get the list of browser class names from config."""
         return get_config().browsers
 
-    async def _run_ipc(self, compositor: str) -> list[dict] | None:
+    async def _run_ipc(self, compositor: str) -> list[dict]:
         """Run a compositor query and return its raw window list."""
         command = (
             ["niri", "msg", "-j", "windows"]
@@ -43,23 +48,22 @@ class CompositorMonitor:
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await result.communicate()
-        except FileNotFoundError:
-            return None
+        except FileNotFoundError as e:
+            raise CompositorIPCError(f"{compositor} command not found") from e
         except OSError as e:
-            logger.error("%s IPC failed: %s", compositor, e)
-            return None
+            raise CompositorIPCError(f"{compositor} IPC failed: {e}") from e
 
         if result.returncode != 0:
-            logger.debug("%s IPC unavailable: %s", compositor, stderr.decode().strip())
-            return None
+            raise CompositorIPCError(
+                f"{compositor} IPC returned {result.returncode}: "
+                f"{stderr.decode(errors='replace').strip()}"
+            )
         try:
-            windows = json.loads(stdout.decode())
-        except json.JSONDecodeError as e:
-            logger.error("Failed to parse %s window data: %s", compositor, e)
-            return None
+            windows = json.loads(stdout.decode(errors="strict"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise CompositorIPCError(f"Invalid {compositor} window data: {e}") from e
         if not isinstance(windows, list):
-            logger.error("%s returned invalid window data", compositor)
-            return None
+            raise CompositorIPCError(f"{compositor} returned invalid window data")
         return windows
 
     async def get_all_windows(self) -> list[dict]:
@@ -71,25 +75,39 @@ class CompositorMonitor:
         # The environment variables make the common case a single IPC call,
         # while the fallback keeps startup robust when a service inherited a
         # minimal environment.
+        if self._compositor is not None:
+            windows = await self._run_ipc(self._compositor)
+            return self._normalize_windows(windows, self._compositor)
+
         preferred = "niri" if os.environ.get("NIRI_SOCKET") else "hyprland"
         compositors = [preferred, "hyprland" if preferred == "niri" else "niri"]
+        errors = []
         for compositor in compositors:
-            windows = await self._run_ipc(compositor)
-            if windows is None:
+            try:
+                windows = await self._run_ipc(compositor)
+            except CompositorIPCError as e:
+                errors.append(str(e))
                 continue
-            normalized = []
-            for window in windows:
-                if not isinstance(window, dict):
+            self._compositor = compositor
+            return self._normalize_windows(windows, compositor)
+        raise CompositorIPCError("; ".join(errors))
+
+    @staticmethod
+    def _normalize_windows(windows: list[dict], compositor: str) -> list[dict]:
+        normalized = []
+        for window in windows:
+            if not isinstance(window, dict):
+                continue
+            item = dict(window)
+            if compositor == "niri":
+                item["class"] = str(item.get("app_id") or "")
+                if item.get("id") is None:
+                    logger.warning("Ignoring Niri window without an id: %r", item)
                     continue
-                item = dict(window)
-                if compositor == "niri":
-                    item.setdefault("class", item.get("app_id", ""))
-                    item.setdefault("address", item.get("id"))
-                item["_compositor"] = compositor
-                normalized.append(item)
-            return normalized
-        logger.debug("No supported compositor IPC is available")
-        return []
+                item["address"] = item["id"]
+            item["_compositor"] = compositor
+            normalized.append(item)
+        return normalized
 
     def _is_browser_window(self, window: dict) -> bool:
         """Check if a window is a browser.
