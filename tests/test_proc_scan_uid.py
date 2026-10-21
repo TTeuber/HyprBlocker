@@ -22,6 +22,11 @@ def test_find_session_uid_returns_non_root_compositor_uid(tmp_path):
     assert proc_scan.find_session_uid(tmp_path, ["Hyprland"]) == 1000
 
 
+def test_find_session_uid_supports_niri(tmp_path):
+    _mkproc(tmp_path, 100, "/usr/bin/niri", uid=1000)
+    assert proc_scan.find_session_uid(tmp_path, ["Hyprland", "niri"]) == 1000
+
+
 def test_find_session_uid_ignores_root_compositor(tmp_path):
     _mkproc(tmp_path, 100, "/usr/bin/Hyprland", uid=0)
     assert proc_scan.find_session_uid(tmp_path, ["Hyprland"]) is None

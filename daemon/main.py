@@ -14,7 +14,11 @@ from sqlalchemy import select
 from daemon.api import app, set_session_factory
 from daemon.config import get_config, get_config_path
 from daemon.database import Block, create_session_factory, init_database
-from daemon.hyprland_monitor import get_hyprland_monitor, init_hyprland_monitor
+from daemon.hyprland_monitor import (
+    CompositorIPCError,
+    get_hyprland_monitor,
+    init_hyprland_monitor,
+)
 from daemon.lock_manager import get_lock_manager, init_lock_manager
 from daemon.scheduler import get_scheduler, init_scheduler
 from daemon.service_enforcer import enforce_user_side
@@ -54,6 +58,7 @@ _session_factory = None
 _server: uvicorn.Server = None  # Uvicorn server instance; signal handler sets _server.should_exit
 _shutdown_prevention_cache: bool = False  # Cached shutdown prevention state for signal handler
 _watchdog_manager: WatchdogManager = None  # Watchdog manager instance
+_monitor_healthy = True
 
 
 async def get_all_blocks() -> list[Block]:
@@ -65,7 +70,7 @@ async def get_all_blocks() -> list[Block]:
 
 async def schedule_check_job():
     """Job that runs periodically to check schedules."""
-    global _shutdown_prevention_cache
+    global _monitor_healthy, _shutdown_prevention_cache
     try:
         scheduler = get_scheduler()
         if scheduler:
@@ -114,8 +119,10 @@ async def schedule_check_job():
                 from enforcer import heartbeat as hb
 
                 nonce = hb.read_challenge()
-                if nonce is not None:
+                if nonce is not None and _monitor_healthy:
                     hb.write_echo(nonce, os.getpid())
+                elif nonce is not None:
+                    logger.error("Skipping heartbeat echo while compositor monitoring is unhealthy")
             except Exception as e:
                 logger.error("Heartbeat echo FAILED (enforcer may fail closed): %s", e)
 
@@ -125,17 +132,23 @@ async def schedule_check_job():
 
 async def monitor_check_job():
     """Job that runs periodically to check windows and browsers."""
+    global _monitor_healthy
     try:
         monitor = get_hyprland_monitor()
         if monitor:
             result = await monitor.run_check()
+            _monitor_healthy = True
             if result["apps_closed"] > 0 or result["browsers_closed"] > 0:
                 logger.info(
                     f"Monitor check: closed {result['apps_closed']} apps, "
                     f"{result['browsers_closed']} browsers"
                 )
+    except CompositorIPCError as e:
+        _monitor_healthy = False
+        logger.error("Compositor monitoring unavailable; enforcement heartbeat withheld: %s", e)
     except Exception as e:
-        logger.error(f"Error in monitor check job: {e}")
+        _monitor_healthy = False
+        logger.error(f"Error in monitor check job; enforcement heartbeat withheld: {e}")
 
 
 def handle_signal(signum, frame):

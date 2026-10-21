@@ -1,8 +1,9 @@
-"""Hyprland window monitoring and management."""
+"""Wayland compositor window monitoring and management."""
 
 import asyncio
 import json
 import logging
+import os
 
 from daemon.blocker import get_app_blocker
 from daemon.config import get_config
@@ -12,76 +13,125 @@ from daemon.heartbeat_tracker import get_heartbeat_tracker
 logger = logging.getLogger(__name__)
 
 
-class HyprlandMonitor:
-    """Monitors Hyprland windows and enforces application blocking."""
+class CompositorIPCError(RuntimeError):
+    """Raised when no supported compositor can provide window state."""
+
+
+class CompositorMonitor:
+    """Monitor windows through Hyprland or Niri IPC."""
 
     def __init__(self, session_factory):
-        """Initialize the Hyprland monitor.
+        """Initialize the compositor monitor.
 
         Args:
             session_factory: Async session factory for logging events
         """
         self._session_factory = session_factory
+        self._compositor: str | None = None
 
     @property
     def browser_classes(self) -> list[str]:
         """Get the list of browser class names from config."""
         return get_config().browsers
 
-    async def get_all_windows(self) -> list[dict]:
-        """Get all windows from Hyprland.
-
-        Returns:
-            List of window dictionaries from hyprctl
-        """
+    async def _run_ipc(self, compositor: str) -> list[dict]:
+        """Run a compositor query and return its raw window list."""
+        command = (
+            ["niri", "msg", "-j", "windows"]
+            if compositor == "niri"
+            else ["hyprctl", "clients", "-j"]
+        )
         try:
             result = await asyncio.create_subprocess_exec(
-                "hyprctl", "clients", "-j",
+                *command,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await result.communicate()
+        except FileNotFoundError as e:
+            raise CompositorIPCError(f"{compositor} command not found") from e
+        except OSError as e:
+            raise CompositorIPCError(f"{compositor} IPC failed: {e}") from e
 
-            if result.returncode != 0:
-                logger.error(f"hyprctl failed: {stderr.decode()}")
-                return []
+        if result.returncode != 0:
+            raise CompositorIPCError(
+                f"{compositor} IPC returned {result.returncode}: "
+                f"{stderr.decode(errors='replace').strip()}"
+            )
+        try:
+            windows = json.loads(stdout.decode(errors="strict"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise CompositorIPCError(f"Invalid {compositor} window data: {e}") from e
+        if not isinstance(windows, list):
+            raise CompositorIPCError(f"{compositor} returned invalid window data")
+        return windows
 
-            windows = json.loads(stdout.decode())
-            return windows
+    async def get_all_windows(self) -> list[dict]:
+        """Get and normalize windows from the active compositor.
 
-        except FileNotFoundError:
-            logger.error("hyprctl not found - Hyprland may not be running")
-            return []
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse hyprctl output: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Failed to get windows: {e}")
-            return []
+        Returns:
+            List of window dictionaries with ``class``, ``pid``, and ``address``.
+        """
+        # The environment variables make the common case a single IPC call,
+        # while the fallback keeps startup robust when a service inherited a
+        # minimal environment.
+        if self._compositor is not None:
+            windows = await self._run_ipc(self._compositor)
+            return self._normalize_windows(windows, self._compositor)
+
+        preferred = "niri" if os.environ.get("NIRI_SOCKET") else "hyprland"
+        compositors = [preferred, "hyprland" if preferred == "niri" else "niri"]
+        errors = []
+        for compositor in compositors:
+            try:
+                windows = await self._run_ipc(compositor)
+            except CompositorIPCError as e:
+                errors.append(str(e))
+                continue
+            self._compositor = compositor
+            return self._normalize_windows(windows, compositor)
+        raise CompositorIPCError("; ".join(errors))
+
+    @staticmethod
+    def _normalize_windows(windows: list[dict], compositor: str) -> list[dict]:
+        normalized = []
+        for window in windows:
+            if not isinstance(window, dict):
+                continue
+            item = dict(window)
+            if compositor == "niri":
+                item["class"] = str(item.get("app_id") or "")
+                if item.get("id") is None:
+                    logger.warning("Ignoring Niri window without an id: %r", item)
+                    continue
+                item["address"] = item["id"]
+            item["_compositor"] = compositor
+            normalized.append(item)
+        return normalized
 
     def _is_browser_window(self, window: dict) -> bool:
         """Check if a window is a browser.
 
         Args:
-            window: Window dictionary from hyprctl
+            window: Normalized window dictionary from the compositor
 
         Returns:
             bool: True if this is a browser window
         """
-        window_class = window.get("class", "").lower()
+        window_class = str(window.get("class") or "").lower()
         return any(browser in window_class for browser in self.browser_classes)
 
     def _matches_app_rule(self, window: dict, target: str) -> bool:
         """Check if a window matches an application blocking rule.
 
         Args:
-            window: Window dictionary from hyprctl
+            window: Normalized window dictionary from the compositor
             target: Target class name pattern
 
         Returns:
             bool: True if the window matches the rule
         """
-        window_class = window.get("class", "").lower()
+        window_class = str(window.get("class") or "").lower()
         target_lower = target.lower()
 
         # Exact match
@@ -98,7 +148,7 @@ class HyprlandMonitor:
         """Count browser windows for a specific PID.
 
         Args:
-            windows: List of window dictionaries from hyprctl
+            windows: List of normalized window dictionaries from the compositor
             pid: Process ID to count windows for
 
         Returns:
@@ -117,7 +167,7 @@ class HyprlandMonitor:
         This detects guest profiles, other profiles without the extension, etc.
 
         Args:
-            windows: All windows from hyprctl
+            windows: All normalized windows from the compositor
             browser_windows: Dict mapping PID to a representative browser window
 
         Returns:
@@ -139,16 +189,17 @@ class HyprlandMonitor:
                 logger.debug(f"PID {pid}: No extension instances tracked, skipping check")
                 continue
 
-            # Count windows Hyprland sees for this PID
-            hyprland_count = self.count_browser_windows_by_pid(windows, pid)
+            # Count windows the compositor sees for this PID
+            compositor_count = self.count_browser_windows_by_pid(windows, pid)
 
             logger.debug(
                 f"PID {pid}: Extension sees {extension_count} windows, "
-                f"Hyprland sees {hyprland_count} windows"
+                f"compositor sees {compositor_count} windows"
             )
 
-            # If Hyprland sees more windows than extension, there are unmonitored windows
-            if hyprland_count > extension_count:
+            # If the compositor sees more windows than the extension, there are
+            # unmonitored windows.
+            if compositor_count > extension_count:
                 # Increment mismatch counter
                 mismatch_count = tracker.increment_window_mismatch(pid)
 
@@ -157,13 +208,13 @@ class HyprlandMonitor:
                 if mismatch_count >= 2:
                     logger.warning(
                         f"Browser PID {pid} has unmonitored windows! "
-                        f"Extension sees {extension_count}, Hyprland sees {hyprland_count} "
+                        f"Extension sees {extension_count}, compositor sees {compositor_count} "
                         f"(mismatch count: {mismatch_count})"
                     )
                     unmonitored.add(pid)
                 else:
                     logger.debug(
-                        f"PID {pid}: Window count mismatch ({extension_count} vs {hyprland_count}), "
+                        f"PID {pid}: Window count mismatch ({extension_count} vs {compositor_count}), "
                         f"waiting for confirmation (count: {mismatch_count}/2)"
                     )
             else:
@@ -173,24 +224,30 @@ class HyprlandMonitor:
         return unmonitored
 
     async def close_window(self, window: dict, reason: str = "blocked") -> bool:
-        """Close a window by its address.
+        """Close a window by its compositor-specific identifier.
 
         Args:
-            window: Window dictionary from hyprctl
+            window: Normalized window dictionary from the compositor
             reason: Reason for closing (for logging)
 
         Returns:
             bool: True if successfully closed
         """
         address = window.get("address")
-        if not address:
+        compositor = window.get("_compositor", "hyprland")
+        if address is None:
             return False
 
         try:
+            command = (
+                ["niri", "msg", "action", "close-window", "--id", str(address)]
+                if compositor == "niri"
+                else ["hyprctl", "dispatch", "closewindow", f"address:{address}"]
+            )
             result = await asyncio.create_subprocess_exec(
-                "hyprctl", "dispatch", "closewindow", f"address:{address}",
+                *command,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await result.communicate()
 
@@ -201,7 +258,7 @@ class HyprlandMonitor:
                 )
                 return True
             else:
-                logger.error(f"Failed to close window: {stderr.decode()}")
+                logger.error(f"Failed to close window via {compositor}: {stderr.decode()}")
                 return False
 
         except Exception as e:
@@ -242,7 +299,7 @@ class HyprlandMonitor:
         closed_count = 0
 
         for window in windows:
-            window_class = window.get("class", "")
+            window_class = str(window.get("class") or "")
             if window_class and await app_blocker.is_app_blocked(window_class):
                 if await self.close_window(window, f"blocked app: {window_class}"):
                     await self.log_block_event(
@@ -329,16 +386,17 @@ class HyprlandMonitor:
 
 
 # Global monitor instance
-_monitor: HyprlandMonitor | None = None
+HyprlandMonitor = CompositorMonitor
+_monitor: CompositorMonitor | None = None
 
 
-def init_hyprland_monitor(session_factory) -> HyprlandMonitor:
-    """Initialize and get the global Hyprland monitor instance."""
+def init_hyprland_monitor(session_factory) -> CompositorMonitor:
+    """Initialize and get the global compositor monitor instance."""
     global _monitor
-    _monitor = HyprlandMonitor(session_factory)
+    _monitor = CompositorMonitor(session_factory)
     return _monitor
 
 
-def get_hyprland_monitor() -> HyprlandMonitor | None:
-    """Get the global Hyprland monitor instance."""
+def get_hyprland_monitor() -> CompositorMonitor | None:
+    """Get the global compositor monitor instance."""
     return _monitor
